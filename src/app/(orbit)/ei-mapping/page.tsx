@@ -12,7 +12,7 @@ const eiItems = [
   { id: 'EI-2026-005', title: 'EGT Margin Monitoring — Fleet Wide', engine: 'All Fleets', status: 'Active', category: 'Performance', interval: 'Per Flight' },
 ];
 
-export function EIMappingPage() {
+export default function EIMappingPage() {
   const [selected, setSelected] = useState<any>(eiItems[0]);
   const { openAIPanel } = useApp();
 

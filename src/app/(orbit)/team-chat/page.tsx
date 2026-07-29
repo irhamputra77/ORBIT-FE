@@ -64,7 +64,7 @@ function Avatar({ initials, size = 36, highlight = false }: { initials: string; 
   );
 }
 
-export function TeamChatPage() {
+export default function TeamChatPage() {
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<number | null>(4);
   const [conversations, setConversations] = useState<Record<number, Message[]>>(INITIAL_CONVERSATIONS);

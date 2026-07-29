@@ -6,7 +6,7 @@ import { findings, engines } from '../../../data/mockData';
 import { formatDateTime } from '@/lib/date-time';
 import { useApp } from '../context/AppContext';
 
-export function OnWatchPage() {
+export default function OnWatchPage() {
   const [selected, setSelected] = useState<any>(findings[0]);
   const { openAIPanel } = useApp();
 

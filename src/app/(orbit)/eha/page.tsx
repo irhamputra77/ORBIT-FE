@@ -13,7 +13,7 @@ const radarData = [
   { subject: 'Oil Pressure', A: 91, B: 84, fullMark: 100 },
 ];
 
-export function EHAPage() {
+export default function EHAPage() {
   const { openAIPanel } = useApp();
 
   return (

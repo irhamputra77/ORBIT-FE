@@ -12,7 +12,7 @@ const sections = [
   { id: 'api', label: 'API Keys', icon: Key },
 ];
 
-export function AdministrationPage() {
+export default function AdministrationPage() {
   const [activeSection, setActiveSection] = useState('general');
   const [saved, setSaved] = useState(false);
 

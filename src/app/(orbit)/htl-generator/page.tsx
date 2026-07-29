@@ -5,7 +5,7 @@ import { ListChecks, Sparkles, Loader2, FileDown } from 'lucide-react';
 import { engines } from '../../../data/mockData';
 import { useApp } from '../context/AppContext';
 
-export function HTLGeneratorPage() {
+export default function HTLGeneratorPage() {
   const [engine, setEngine] = useState(engines[0].esn);
   const [generating, setGenerating] = useState(false);
   const [generated, setGenerated] = useState(false);

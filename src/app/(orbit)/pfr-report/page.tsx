@@ -14,7 +14,7 @@ const pfrData = [
   { month: 'Jun', PFR: 0.026, EER: 0.018, target: 0.050 },
 ];
 
-export function PFRReportPage() {
+export default function PFRReportPage() {
   const { openAIPanel } = useApp();
 
   return (

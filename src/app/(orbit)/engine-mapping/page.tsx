@@ -103,7 +103,7 @@ function MappingGraph({ selectedEngine }: { selectedEngine: any }) {
   );
 }
 
-export function EngineMappingPage() {
+export default function EngineMappingPage() {
   const [selectedEngine, setSelectedEngine] = useState(engines[0]);
   const { openAIPanel } = useApp();
 

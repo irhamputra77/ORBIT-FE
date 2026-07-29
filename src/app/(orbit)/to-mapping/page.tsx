@@ -5,7 +5,7 @@ import { technicalOrders } from '../../../data/mockData';
 import { FileText, ChevronRight, Sparkles, BookOpen } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 
-export function TOMappingPage() {
+export default function TOMappingPage() {
   const [selected, setSelected] = useState<any>(technicalOrders[0]);
   const { openAIPanel } = useApp();
 

@@ -74,7 +74,7 @@ const edges: GraphEdge[] = [
   { source: 'ad2', target: 'sb4', color: '#F59E0B' },
 ];
 
-export function KnowledgeGraphPage() {
+export default function KnowledgeGraphPage() {
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState<string | null>(null);

@@ -46,7 +46,7 @@ const typeIcons: Record<string, React.ElementType> = {
   SB: FileText, EO: GitBranch, TO: BookOpen, Finding: Cpu,
 };
 
-export function SemanticSearchPage() {
+export default function SemanticSearchPage() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<typeof sampleResults>([]);
   const [searching, setSearching] = useState(false);

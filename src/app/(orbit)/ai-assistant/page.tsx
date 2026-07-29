@@ -59,7 +59,7 @@ Key observations:
 *References: ORBIT EES database, EASA/FAA regulatory compliance records · Prepared by Ahmad Fikri Ramadhan*`,
 ];
 
-export function AIAssistantPage() {
+export default function AIAssistantPage() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [typing, setTyping] = useState(false);

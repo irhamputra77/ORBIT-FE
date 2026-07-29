@@ -5,7 +5,7 @@ import { ListChecks, Sparkles, Loader2, FileDown, CheckCircle2 } from 'lucide-re
 import { engines } from '../../../data/mockData';
 import { useApp } from '../context/AppContext';
 
-export function GTLGeneratorPage() {
+export default function GTLGeneratorPage() {
   const [engine, setEngine] = useState(engines[0].esn);
   const [generating, setGenerating] = useState(false);
   const [generated, setGenerated] = useState(false);

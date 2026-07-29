@@ -8,7 +8,7 @@ import { useApp } from '../context/AppContext';
 const priorityColor = (p: string) => p === 'Critical' ? '#EF4444' : p === 'High' ? '#F59E0B' : p === 'Medium' ? '#0242DB' : '#6B7280';
 const statusColor = (s: string) => s === 'Active' ? '#10B981' : s === 'In Review' ? '#F59E0B' : s === 'Draft' ? '#6B7280' : '#0242DB';
 
-export function EOMappingPage() {
+export default function EOMappingPage() {
   const [selected, setSelected] = useState<any>(engineeringOrders[0]);
   const { openAIPanel } = useApp();
 

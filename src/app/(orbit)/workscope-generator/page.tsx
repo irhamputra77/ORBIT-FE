@@ -12,7 +12,7 @@ const llpItems = [
   { part: 'LPT Disk Stage 2', cycles: 24100, limit: 30000, pct: 80 },
 ];
 
-export function WorkscopeGeneratorPage() {
+export default function WorkscopeGeneratorPage() {
   const [engine, setEngine] = useState(engines[0].esn);
   const [generating, setGenerating] = useState(false);
   const [generated, setGenerated] = useState(false);

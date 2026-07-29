@@ -12,7 +12,7 @@ const extendedData = [
   { month: 'Aug', 'CFM56-7B': 0.26, 'LEAP-1B': 0.16, 'CFM56-5B': 0.51, 'TRENT 700': 0.33 },
 ];
 
-export function OilConsumptionPage() {
+export default function OilConsumptionPage() {
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
   const { openAIPanel } = useApp();
 
