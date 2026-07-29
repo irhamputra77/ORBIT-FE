@@ -1,0 +1,428 @@
+import type {
+  ServiceBulletinEesEvaluation,
+  ServiceBulletinViewModel,
+} from "@/features/service-bulletins";
+
+function evaluation(
+  id: string,
+  eesDocumentId: string,
+  requirementDesc: string,
+  remarks: string,
+  warranty: boolean,
+): ServiceBulletinEesEvaluation {
+  return {
+    id,
+    eesDocumentId,
+    itemNo: "1",
+    paragraph: "Planning Information",
+    requirementDesc,
+    remarks,
+    taskType: "REP",
+    warranty,
+    rep: "Y",
+    dueAt: null,
+    isApplicable: true,
+  };
+}
+
+const base: Omit<
+  ServiceBulletinViewModel,
+  | "id"
+  | "bulletinNumber"
+  | "revision"
+  | "title"
+  | "manufacturer"
+  | "publicationDate"
+  | "receivedAt"
+  | "category"
+  | "impactType"
+  | "aircraftType"
+  | "effectivityType"
+  | "effectivityRange"
+  | "createdBy"
+  | "createdById"
+  | "createdByRole"
+  | "inputSource"
+  | "eesNumber"
+  | "generatedEesId"
+  | "eesReviewStatus"
+  | "eesCreatedAt"
+  | "status"
+  | "originalFilename"
+  | "storedFilename"
+  | "createdAt"
+  | "relationshipStatus"
+  | "relationships"
+  | "reviewActions"
+  | "evaluations"
+  | "extractedItems"
+> = {
+  warranty: "",
+  rep: null,
+  compliancePeriod: null,
+  sbType: null,
+  operatorId: null,
+  ocrStatus: "EXTRACTED",
+  draftStatus: "GENERATED",
+  references: [],
+  affectedESNs: [],
+  affectedPartNumbers: [],
+  taskType: null,
+  recommendedAction: null,
+  priorityLevel: null,
+  engineeringNotes: null,
+  isDeferable: null,
+  egtMarginCheck: null,
+};
+
+export const DUMMY_SERVICE_BULLETINS: ServiceBulletinViewModel[] = [
+  {
+    ...base,
+    id: "SB-F7204CEA",
+    bulletinNumber: "GE90 SB 72-0685 R06",
+    revision: "R06",
+    title: "ENGINE - Fan Hub Frame Assembly - TGB Roller Bearing Inner Race Material Change",
+    manufacturer: "GE Aerospace",
+    publicationDate: "2025-12-22T00:00:00.000Z",
+    receivedAt: "2026-07-01T08:12:00.000Z",
+    category: 3,
+    impactType: "E",
+    aircraftType: "B777-300ER",
+    effectivityType: "GE90-100",
+    effectivityRange: "GE90-110B1, GE90-115B",
+    compliancePeriod: "At next shop visit",
+    sbType: "MOD",
+    references: ["GE90-100 Boeing 777 Aircraft Maintenance Manual"],
+    affectedESNs: ["906101", "906102"],
+    affectedPartNumbers: ["1847M56G01"],
+    taskType: "REP",
+    warranty: "Y",
+    rep: "Y",
+    createdBy: null,
+    createdById: null,
+    createdByRole: null,
+    inputSource: "MAIN_DATABASE",
+    eesNumber: "EES-GA-204CEA",
+    generatedEesId: "EES-D355DA37",
+    eesReviewStatus: "APPROVED",
+    eesCreatedAt: "2026-07-21T06:32:08.080Z",
+    recommendedAction: "COMPLY",
+    priorityLevel: "HIGH",
+    engineeringNotes: "Perform at next scheduled shop visit.",
+    isDeferable: false,
+    egtMarginCheck: false,
+    status: "ACTIVE",
+    originalFilename: "SB_GE90_72_0685_R06.pdf",
+    storedFilename: "SB_GE90_72_0685_R06.pdf",
+    createdAt: "2026-07-01T08:12:00.000Z",
+    relationshipStatus: "BOTH",
+    relationships: [
+      {
+        id: null,
+        bulletinNumber: "GE90 SB 72-0550 R02",
+        title: "Initial TGB Roller Bearing Inspection Program",
+        type: "RECURRENT",
+        status: "COMPLETED",
+        direction: "INCOMING",
+        executionMode: "REQUIRED",
+      },
+      {
+        id: "SB-D7A838F4",
+        bulletinNumber: "GE90 SB 72-0632 R04",
+        title: "TGB Roller Bearing Inspection and Repetitive Check",
+        type: "RECURRENT",
+        status: "ACTIVE",
+        direction: "OUTGOING",
+        executionMode: "OPTIONAL_ALTERNATIVE",
+        alternativeGroup: "TGB-RECURRENT-OPTION-A",
+      },
+      {
+        id: null,
+        bulletinNumber: "GE90 SB 72-0701 R01",
+        title: "Alternative TGB Inner Race Repetitive Inspection",
+        type: "RECURRENT",
+        status: "ACTIVE",
+        direction: "OUTGOING",
+        executionMode: "OPTIONAL_ALTERNATIVE",
+        alternativeGroup: "TGB-RECURRENT-OPTION-A",
+      },
+      {
+        id: null,
+        bulletinNumber: "GE90 SB 72-0412 R03",
+        title: "Legacy TGB Bearing Material Configuration",
+        type: "SUPERSEDED",
+        status: "SUPERSEDED",
+        direction: "INCOMING",
+        executionMode: "REQUIRED",
+      },
+      {
+        id: null,
+        bulletinNumber: "GE90 SB 72-0498 R02",
+        title: "Previous TGB Roller Bearing Replacement Instruction",
+        type: "TERMINATED",
+        status: "TERMINATED",
+        direction: "OUTGOING",
+        executionMode: "REQUIRED",
+      },
+      {
+        id: null,
+        bulletinNumber: "GE90 SB 72-0526 R01",
+        title: "TGB Inner Race Interim Inspection",
+        type: "TERMINATED",
+        status: "TERMINATED",
+        direction: "OUTGOING",
+        executionMode: "REQUIRED",
+      },
+      {
+        id: null,
+        bulletinNumber: "GE90 SB 72-0591 R00",
+        title: "Interim TGB Assembly Rework",
+        type: "TERMINATED",
+        status: "TERMINATED",
+        direction: "OUTGOING",
+        executionMode: "REQUIRED",
+      },
+    ],
+    reviewActions: [
+      {
+        id: "REV-GE90-001",
+        action: "APPROVED",
+        actorName: "Dimas Pratama",
+        actorRole: "SECOND_ENGINEER",
+        comment: "Technical evaluation and applicability have been verified.",
+        createdAt: "2026-07-20T09:15:00.000Z",
+      },
+      {
+        id: "REV-GE90-002",
+        action: "APPROVED",
+        actorName: "Rizky Aditya",
+        actorRole: "MANAGER",
+        comment: "Approved for release and implementation.",
+        createdAt: "2026-07-21T06:32:08.080Z",
+      },
+    ],
+    evaluations: [
+      evaluation(
+        "ITEM-GE90-001",
+        "EES-D355DA37",
+        "Introduce new and reworked TGB assemblies using the improved inner race material.",
+        "Applicable to affected GE90-100 engines during the next shop visit.",
+        true,
+      ),
+    ],
+    extractedItems: [],
+  },
+  {
+    ...base,
+    id: "SB-E3F4DB08",
+    bulletinNumber: "LEAP-1A-72-00-0449",
+    revision: "01A",
+    title: "ENGINE - Introduction of New LPTACC Cooling Manifold Assembly 2 and New Bracket",
+    manufacturer: "CFM International",
+    publicationDate: "2026-02-02T00:00:00.000Z",
+    receivedAt: "2026-07-21T06:32:08.084Z",
+    category: 5,
+    impactType: "D",
+    aircraftType: "A320neo",
+    effectivityType: "LEAP-1A",
+    effectivityRange: "LEAP-1A24, LEAP-1A26",
+    compliancePeriod: "Before 12,000 engine cycles",
+    sbType: "MOD",
+    references: ["AMM 75-31-01", "IPC 75-30-00"],
+    affectedESNs: ["804474", "804502"],
+    affectedPartNumbers: ["2548M90G01", "2548M90G02"],
+    taskType: "MOD",
+    warranty: "N",
+    rep: "N",
+    createdBy: "ahmad.fikri",
+    createdById: "USR-DEMO-001",
+    createdByRole: "FIRST_ENGINEER",
+    inputSource: "USER_UPLOAD",
+    eesNumber: "EES-TEMP-E3F4DB08",
+    generatedEesId: "EES-DOC-DEMO-01",
+    eesReviewStatus: "PENDING",
+    eesCreatedAt: "2026-07-22T03:14:00.000Z",
+    recommendedAction: "REVIEW",
+    priorityLevel: "MEDIUM",
+    engineeringNotes: "Manual EES review is required for this category.",
+    isDeferable: true,
+    egtMarginCheck: false,
+    status: "ACTIVE",
+    originalFilename: "LEAP-1A-72-00-0449_01A.pdf",
+    storedFilename: "LEAP-1A-72-00-0449_01A.pdf",
+    createdAt: "2026-07-21T06:25:42.000Z",
+    relationshipStatus: "SUPERSEDED",
+    relationships: [
+      {
+        id: "SB-DOC-67B0D769",
+        bulletinNumber: "LEAP-1A-72-00-0399",
+        title: "Previous LPTACC Cooling Manifold Configuration",
+        type: "SUPERSEDED",
+        status: "SUPERSEDED",
+      },
+    ],
+    reviewActions: [
+      {
+        id: "REV-LEAP-001",
+        action: "PENDING",
+        actorName: "ahmad.fikri",
+        actorRole: "FIRST_ENGINEER",
+        comment: "Submitted for second engineer review.",
+        createdAt: "2026-07-22T03:14:00.000Z",
+      },
+    ],
+    evaluations: [
+      evaluation(
+        "ITEM-LEAP-001",
+        "EES-DOC-DEMO-01",
+        "Replace the affected LPTACC cooling manifold assembly and install the new bracket.",
+        "Manual engineering assessment is still in progress.",
+        false,
+      ),
+    ],
+    extractedItems: [
+      {
+        itemNo: "1",
+        paragraph: "Effectivity",
+        requirementDesc: "LEAP-1A engines with the affected LPTACC cooling manifold configuration.",
+        remarks: "Compare engine serial number and affected part number with fleet records.",
+        taskType: "MOD",
+        references: ["SB Effectivity Section 1.A"],
+      },
+      {
+        itemNo: "2",
+        paragraph: "Accomplishment Instructions",
+        requirementDesc: "Remove the old manifold and install the improved manifold assembly and bracket.",
+        remarks: "Requires manual EES input because the compliance category is 5.",
+        taskType: "MOD",
+        references: ["SB Accomplishment Instructions Section 3"],
+      },
+    ],
+  },
+  {
+    ...base,
+    id: "SB-D7A838F4",
+    bulletinNumber: "GE90 SB 72-0632 R04",
+    revision: "R04",
+    title: "ENGINE - TGB Roller Bearing Inspection and Repetitive Check",
+    manufacturer: "GE Aerospace",
+    publicationDate: "2024-10-18T00:00:00.000Z",
+    receivedAt: "2026-06-12T02:20:00.000Z",
+    category: 2,
+    impactType: "C",
+    aircraftType: "B777-300ER",
+    effectivityType: "GE90-100",
+    effectivityRange: "GE90-115B",
+    compliancePeriod: "Every 2,000 cycles",
+    sbType: "INSP",
+    references: ["GE90 AMM 72-23-00"],
+    affectedESNs: ["906101"],
+    affectedPartNumbers: ["1847M56G01"],
+    taskType: "INSP",
+    warranty: "N",
+    rep: "Y",
+    createdBy: null,
+    createdById: null,
+    createdByRole: null,
+    inputSource: "MAIN_DATABASE",
+    eesNumber: null,
+    generatedEesId: null,
+    eesReviewStatus: null,
+    eesCreatedAt: null,
+    status: "ACTIVE",
+    originalFilename: "GE90_SB_72_0632_R04.pdf",
+    storedFilename: "GE90_SB_72_0632_R04.pdf",
+    createdAt: "2026-06-12T02:20:00.000Z",
+    relationshipStatus: "RECURRENT",
+    relationships: [
+      {
+        id: "SB-F7204CEA",
+        bulletinNumber: "GE90 SB 72-0685 R06",
+        title: "TGB Roller Bearing Inner Race Material Change",
+        type: "RECURRENT",
+        status: "ACTIVE",
+      },
+    ],
+    reviewActions: [],
+    evaluations: [],
+    extractedItems: [],
+  },
+  {
+    ...base,
+    id: "SB-DOC-67B0D769",
+    bulletinNumber: "LEAP-1A-72-00-0399",
+    revision: "00",
+    title: "ENGINE - Previous LPTACC Cooling Manifold Configuration",
+    manufacturer: "CFM International",
+    publicationDate: "2023-08-09T00:00:00.000Z",
+    receivedAt: "2025-11-14T04:05:00.000Z",
+    category: 4,
+    impactType: "B",
+    aircraftType: "A320neo",
+    effectivityType: "LEAP-1A",
+    effectivityRange: "LEAP-1A24, LEAP-1A26",
+    compliancePeriod: "Terminated by LEAP-1A-72-00-0449",
+    sbType: "MOD",
+    references: ["AMM 75-31-01"],
+    affectedESNs: ["804474", "804502"],
+    affectedPartNumbers: ["2548M90G01"],
+    taskType: "MOD",
+    warranty: "N",
+    rep: "N",
+    createdBy: "nabila.putri",
+    createdById: "USR-DEMO-002",
+    createdByRole: "ENGINEER",
+    inputSource: "USER_UPLOAD",
+    eesNumber: "EES-CT-0399-00",
+    generatedEesId: "EES-DOC-DEMO-02",
+    eesReviewStatus: "APPROVED",
+    eesCreatedAt: "2025-11-20T08:30:00.000Z",
+    status: "SUPERSEDED",
+    originalFilename: "LEAP-1A-72-00-0399_00.pdf",
+    storedFilename: "LEAP-1A-72-00-0399_00.pdf",
+    createdAt: "2025-11-14T04:05:00.000Z",
+    relationshipStatus: "TERMINATED",
+    relationships: [
+      {
+        id: "SB-E3F4DB08",
+        bulletinNumber: "LEAP-1A-72-00-0449",
+        title: "Introduction of New LPTACC Cooling Manifold Assembly 2 and New Bracket",
+        type: "TERMINATED",
+        status: "ACTIVE",
+      },
+    ],
+    reviewActions: [
+      {
+        id: "REV-0399-001",
+        action: "APPROVED",
+        actorName: "Siti Rahma",
+        actorRole: "MANAGER",
+        comment: "Approved before the terminating bulletin was released.",
+        createdAt: "2025-11-20T08:30:00.000Z",
+      },
+    ],
+    evaluations: [
+      evaluation(
+        "ITEM-0399-001",
+        "EES-DOC-DEMO-02",
+        "Install the previous LPTACC cooling manifold configuration.",
+        "No longer used because this SB has been terminated.",
+        false,
+      ),
+    ],
+    extractedItems: [
+      {
+        itemNo: "1",
+        paragraph: "Compliance",
+        requirementDesc: "Install the previous cooling manifold configuration.",
+        remarks: "This instruction has been terminated by LEAP-1A-72-00-0449.",
+        taskType: "MOD",
+        references: ["SB 72-00-0399 Section 1.E"],
+      },
+    ],
+  },
+];
+
+export function getDummyServiceBulletin(id: string) {
+  return DUMMY_SERVICE_BULLETINS.find((item) => item.id === id) ?? null;
+}
