@@ -1,5 +1,9 @@
 import { axiosClient } from "@/lib/http/axiosClient";
 import {
+  directUploadClient,
+  directUploadError,
+} from "@/lib/http/directUploadClient";
+import {
   mapShopVisitReport,
   mapShopVisitReportList,
 } from "../adapters/shopVisitReportAdapter";
@@ -46,27 +50,30 @@ export async function uploadShopVisitReport(
   const formData = new FormData();
   files.forEach((file) => formData.append("files", file, file.name));
 
-  const response = await axiosClient.post<UploadShopVisitReportResult>(
-    "/shop-visit-reports/upload/SVR",
-    formData,
-    {
-      // axiosClient defaults to application/json. Override it here so Axios
-      // keeps the FormData body and lets the browser attach its multipart
-      // boundary instead of serializing the form as JSON.
-      headers: { "Content-Type": "multipart/form-data" },
-      signal,
-      timeout: 0,
-      onUploadProgress: (event) => {
-        if (!event.total) return;
-        onProgress?.(Math.min(100, Math.round((event.loaded / event.total) * 100)));
+  try {
+    const response = await directUploadClient.post<UploadShopVisitReportResult>(
+      "/api/shop-visit-reports/upload/SVR",
+      formData,
+      {
+        // Do not set Content-Type manually. The browser must add the multipart
+        // boundary for the direct cross-origin upload.
+        headers: { "X-Requested-With": "XMLHttpRequest" },
+        signal,
+        timeout: 0,
+        onUploadProgress: (event) => {
+          if (!event.total) return;
+          onProgress?.(Math.min(100, Math.round((event.loaded / event.total) * 100)));
+        },
       },
-    },
-  );
+    );
 
-  return {
-    message: response.data.message || "SVR berhasil diunggah dan diproses.",
-    data: response.data.data,
-  };
+    return {
+      message: response.data.message || "SVR berhasil diunggah dan diproses.",
+      data: response.data.data,
+    };
+  } catch (error) {
+    throw directUploadError(error, "SVR gagal diunggah.");
+  }
 }
 
 export async function getShopVisitReports(

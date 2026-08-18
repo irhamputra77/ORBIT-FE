@@ -30,7 +30,14 @@ At minimum, `.env` should contain:
 
 ```dotenv
 API_BASE_URL=http://127.0.0.1:3001
+NEXT_PUBLIC_API_BASE_URL=https://api.orbit-gmf.online
 ```
+
+`NEXT_PUBLIC_API_BASE_URL` is embedded during `npm run build`. It is used only
+for direct PDF uploads; regular JSON requests continue through the Next.js BFF.
+Direct uploads send the shared `orbit_access_token` cookie with credentials, so
+the backend API must allow the frontend origin, credentialed CORS requests, and
+the `X-Requested-With` header.
 
 ## 2. Install the systemd service
 

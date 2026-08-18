@@ -37,6 +37,9 @@ function tooManyRequests(retryAfterSeconds: number) {
 }
 
 export async function POST(request: Request) {
+  const hostname = new URL(request.url).hostname;
+  const useSharedDomain =
+    hostname === "orbit-gmf.online" || hostname.endsWith(".orbit-gmf.online");
   const addressKey = `login:address:${hashIdentifier(getClientAddress(request))}`;
   const addressLimit = consumeRateLimit({
     key: addressKey,
@@ -94,6 +97,7 @@ export async function POST(request: Request) {
       secure: process.env.NODE_ENV === "production",
       sameSite: "lax",
       path: "/",
+      ...(useSharedDomain ? { domain: ".orbit-gmf.online" } : {}),
       ...(rememberMe ? { maxAge: 60 * 60 * 24 * 30 } : {}),
     });
 

@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { backendApi, getAuthorizationHeader } from "@/lib/http/backendRoute";
 
-export async function POST() {
+export async function POST(request: Request) {
+  const hostname = new URL(request.url).hostname;
+  const useSharedDomain =
+    hostname === "orbit-gmf.online" || hostname.endsWith(".orbit-gmf.online");
   const authorization = await getAuthorizationHeader();
   let backendConfirmed = false;
 
@@ -27,6 +30,7 @@ export async function POST() {
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
+    ...(useSharedDomain ? { domain: ".orbit-gmf.online" } : {}),
     maxAge: 0,
   });
   response.headers.set("Cache-Control", "no-store");

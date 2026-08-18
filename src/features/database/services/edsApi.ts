@@ -1,4 +1,8 @@
 import { axiosClient } from "@/lib/http/axiosClient";
+import {
+  directUploadClient,
+  directUploadError,
+} from "@/lib/http/directUploadClient";
 import type {
   EdsDetail,
   EdsListItem,
@@ -111,24 +115,29 @@ export async function uploadEdsPdf(
   signal?: AbortSignal,
   onProgress?: (percentage: number) => void,
 ): Promise<UploadEdsResult> {
-  const response = await axiosClient.post<UploadEdsResult>(
-    "/engine-data-sheets/upload/EDS",
-    file,
-    {
-      signal,
-      timeout: 0,
-      headers: {
-        "Content-Type": "application/pdf",
-        "X-File-Name": file.name,
+  try {
+    const response = await directUploadClient.post<UploadEdsResult>(
+      "/api/eds/upload",
+      file,
+      {
+        signal,
+        timeout: 0,
+        headers: {
+          "Content-Type": "application/pdf",
+          "X-File-Name": file.name,
+          "X-Requested-With": "XMLHttpRequest",
+        },
+        onUploadProgress: (event) => {
+          if (!event.total) return;
+          onProgress?.(Math.min(100, Math.round((event.loaded / event.total) * 100)));
+        },
       },
-      onUploadProgress: (event) => {
-        if (!event.total) return;
-        onProgress?.(Math.min(100, Math.round((event.loaded / event.total) * 100)));
-      },
-    },
-  );
-  return {
-    message: response.data.message || "PDF EDS berhasil diunggah dan diproses.",
-    data: response.data.data,
-  };
+    );
+    return {
+      message: response.data.message || "PDF EDS berhasil diunggah dan diproses.",
+      data: response.data.data,
+    };
+  } catch (error) {
+    throw directUploadError(error, "PDF EDS gagal diunggah.");
+  }
 }

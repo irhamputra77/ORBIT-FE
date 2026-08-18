@@ -1,6 +1,10 @@
 import { axiosClient } from "@/lib/http/axiosClient";
 import axios from "axios";
 import {
+  directUploadClient,
+  directUploadError,
+} from "@/lib/http/directUploadClient";
+import {
   mapServiceBulletin,
   mapServiceBulletinList,
   mapServiceBulletinRelations,
@@ -89,34 +93,39 @@ export async function uploadServiceBulletin(
   signal?: AbortSignal,
   onProgress?: (percentage: number) => void,
 ): Promise<UploadServiceBulletinResult> {
-  const response = await axiosClient.post<{
-    message?: string;
-    data: UploadServiceBulletinResponseData;
-  }>("/service-bulletins/upload-new", file, {
-    signal,
-    // Upload waits for the backend AI extraction in the same request.
-    timeout: 0,
-    headers: {
-      "Content-Type": "application/pdf",
-      "X-File-Name": file.name,
-      ...(aircraftType && aircraftType !== "Unassigned"
-        ? { "X-Aircraft-Type": aircraftType }
-        : {}),
-    },
-    onUploadProgress: (event) => {
-      if (!event.total) return;
-      onProgress?.(Math.min(100, Math.round((event.loaded / event.total) * 100)));
-    },
-  });
+  try {
+    const response = await directUploadClient.post<{
+      message?: string;
+      data: UploadServiceBulletinResponseData;
+    }>("/api/service-bulletins/upload-new", file, {
+      signal,
+      // Upload waits for the backend AI extraction in the same request.
+      timeout: 0,
+      headers: {
+        "Content-Type": "application/pdf",
+        "X-File-Name": file.name,
+        "X-Requested-With": "XMLHttpRequest",
+        ...(aircraftType && aircraftType !== "Unassigned"
+          ? { "X-Aircraft-Type": aircraftType }
+          : {}),
+      },
+      onUploadProgress: (event) => {
+        if (!event.total) return;
+        onProgress?.(Math.min(100, Math.round((event.loaded / event.total) * 100)));
+      },
+    });
 
-  const data = response.data.data;
-  return {
-    message: response.data.message || "Service Bulletin berhasil diunggah.",
-    data,
-    serviceBulletin: mapServiceBulletin(data),
-    aiCompleted: Boolean(data.ai),
-    warning: data.warning || null,
-  };
+    const data = response.data.data;
+    return {
+      message: response.data.message || "Service Bulletin berhasil diunggah.",
+      data,
+      serviceBulletin: mapServiceBulletin(data),
+      aiCompleted: Boolean(data.ai),
+      warning: data.warning || null,
+    };
+  } catch (error) {
+    throw directUploadError(error, "Service Bulletin gagal diunggah.");
+  }
 }
 
 export async function getAircraftTypes(signal?: AbortSignal) {
