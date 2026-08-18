@@ -5,11 +5,14 @@ import {
 } from "../adapters/approvalRequestAdapter";
 import type { ApprovalRequestListParams } from "../types";
 
+export type ApprovalRequestCollection = "inbox" | "history";
+
 export async function getApprovalRequests(
   params: ApprovalRequestListParams = {},
   signal?: AbortSignal,
+  collection: ApprovalRequestCollection = "inbox",
 ) {
-  const response = await axiosClient.get("/approvals", {
+  const response = await axiosClient.get(`/approvals/${collection}`, {
     params,
     signal,
   });

@@ -33,7 +33,13 @@ interface ServiceBulletinUploadContextValue {
   message: string | null;
   fileName: string | null;
   isBusy: boolean;
-  upload: (file: File, aircraftType?: string) => Promise<UploadServiceBulletinResult | null>;
+  /** Ask the EES Generator upload window to restore from its minimized state. */
+  openUploadPanelRequest: number;
+  requestOpenUploadPanel: () => void;
+  upload: (
+    file: File,
+    aircraftType?: string,
+  ) => Promise<UploadServiceBulletinResult | null>;
   cancel: () => void;
   reset: () => void;
 }
@@ -42,10 +48,16 @@ const ServiceBulletinUploadContext = createContext<ServiceBulletinUploadContextV
 
 export function ServiceBulletinUploadProvider({ children }: { children: ReactNode }) {
   const controllerRef = useRef<AbortController | null>(null);
+  // A monotonically increasing token also cancels the validation phase, which
+  // cannot be aborted by Axios because it completes before an upload controller
+  // is created.
+  const requestTokenRef = useRef(0);
+  const activeRequestRef = useRef(false);
   const [status, setStatus] = useState<ServiceBulletinUploadStatus>("idle");
   const [progress, setProgress] = useState(0);
   const [message, setMessage] = useState<string | null>(null);
   const [fileName, setFileName] = useState<string | null>(null);
+  const [openUploadPanelRequest, setOpenUploadPanelRequest] = useState(0);
 
   const reset = useCallback(() => {
     if (controllerRef.current) return;
@@ -56,6 +68,8 @@ export function ServiceBulletinUploadProvider({ children }: { children: ReactNod
   }, []);
 
   const cancel = useCallback(() => {
+    requestTokenRef.current += 1;
+    activeRequestRef.current = false;
     controllerRef.current?.abort();
     controllerRef.current = null;
     setStatus("idle");
@@ -64,11 +78,18 @@ export function ServiceBulletinUploadProvider({ children }: { children: ReactNod
     setFileName(null);
   }, []);
 
+  const requestOpenUploadPanel = useCallback(() => {
+    setOpenUploadPanelRequest((current) => current + 1);
+  }, []);
+
   const upload = useCallback(async (
     file: File,
     aircraftType?: string,
   ): Promise<UploadServiceBulletinResult | null> => {
-    if (controllerRef.current) return null;
+    if (activeRequestRef.current) return null;
+
+    const requestToken = ++requestTokenRef.current;
+    activeRequestRef.current = true;
 
     setFileName(file.name);
     setStatus("validating");
@@ -78,10 +99,14 @@ export function ServiceBulletinUploadProvider({ children }: { children: ReactNod
     try {
       await validateServiceBulletinPdf(file);
     } catch (error) {
+      if (requestToken !== requestTokenRef.current) return null;
       setStatus("validation-error");
       setMessage(getApiMessage(error));
+      activeRequestRef.current = false;
       return null;
     }
+
+    if (requestToken !== requestTokenRef.current) return null;
 
     const controller = new AbortController();
     controllerRef.current = controller;
@@ -89,15 +114,18 @@ export function ServiceBulletinUploadProvider({ children }: { children: ReactNod
 
     try {
       const result = await uploadServiceBulletin(file, aircraftType, controller.signal, (percentage) => {
+        if (requestToken !== requestTokenRef.current) return;
         setProgress(percentage);
         if (percentage >= 100) setStatus("processing-ai");
       });
+      if (requestToken !== requestTokenRef.current) return null;
       const partial = !result.aiCompleted || Boolean(result.warning);
       setStatus(partial ? "partial-success" : "success");
       setProgress(100);
       setMessage(result.warning || result.message);
       return result;
     } catch (error) {
+      if (requestToken !== requestTokenRef.current) return null;
       if (axios.isCancel(error)) {
         setStatus("idle");
         setFileName(null);
@@ -114,7 +142,10 @@ export function ServiceBulletinUploadProvider({ children }: { children: ReactNod
       setMessage(getApiMessage(error));
       return null;
     } finally {
-      controllerRef.current = null;
+      if (requestToken === requestTokenRef.current) {
+        controllerRef.current = null;
+        activeRequestRef.current = false;
+      }
     }
   }, []);
 
@@ -125,10 +156,23 @@ export function ServiceBulletinUploadProvider({ children }: { children: ReactNod
     message,
     fileName,
     isBusy,
+    openUploadPanelRequest,
+    requestOpenUploadPanel,
     upload,
     cancel,
     reset,
-  }), [cancel, fileName, isBusy, message, progress, reset, status, upload]);
+  }), [
+    cancel,
+    fileName,
+    isBusy,
+    message,
+    openUploadPanelRequest,
+    progress,
+    requestOpenUploadPanel,
+    reset,
+    status,
+    upload,
+  ]);
 
   return (
     <ServiceBulletinUploadContext.Provider value={value}>

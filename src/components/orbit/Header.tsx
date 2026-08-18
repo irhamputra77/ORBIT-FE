@@ -1,9 +1,13 @@
 import { useState, useRef, useEffect } from 'react';
-import { Bell, Sun, Moon, ChevronDown, Search, X, User, Mail, Shield, FileText, Loader2, Database, FlaskConical } from 'lucide-react';
+import { Sun, Moon, ChevronDown, Search, X, User, Mail, Shield, FileText, Loader2, Database, FlaskConical } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { useApp } from '../../app/(orbit)/context/AppContext';
 import { useUploadServiceBulletin } from '@/features/service-bulletins';
+import { useShopVisitReportUploadTask } from '@/features/database/hooks/useShopVisitReportUploadTask';
+import { useEdsUploadTask } from '@/features/database/hooks/useEdsUploadTask';
+import { useSmoothNavigation } from './SmoothNavigationProvider';
+import { NotificationCenter } from '@/features/notifications';
 
 const TEAM = [
   { name: 'Davy Febrynzki', role: 'Manager', fleet: '—', isManager: true },
@@ -27,7 +31,7 @@ function getInitials(name: string) {
 
 export function Header() {
   const pathname = usePathname();
-  const router = useRouter();
+  const router = useSmoothNavigation();
   const {
     darkMode,
     toggleDarkMode,
@@ -39,6 +43,8 @@ export function Header() {
     setDataSourceMode,
   } = useApp();
   const serviceBulletinUpload = useUploadServiceBulletin();
+  const svrUpload = useShopVisitReportUploadTask();
+  const edsUpload = useEdsUploadTask();
   const [profileOpen, setProfileOpen] = useState(false);
   const profileRef = useRef<HTMLDivElement>(null);
 
@@ -87,14 +93,20 @@ export function Header() {
 
       <AnimatePresence initial={false}>
         {serviceBulletinUpload.isBusy && (
-          <motion.div
+          <motion.button
+            type="button"
+            onClick={() => {
+              serviceBulletinUpload.requestOpenUploadPanel();
+              if (pathname !== "/ees-generator") router.push("/ees-generator");
+            }}
             key="service-bulletin-extraction"
             initial={{ opacity: 0, y: -8, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.96 }}
             transition={{ duration: 0.2, ease: "easeOut" }}
-            className="w-56 shrink-0 overflow-hidden rounded-xl border border-blue-500/25 bg-card shadow-sm"
+            className="w-56 shrink-0 overflow-hidden rounded-xl border border-blue-500/25 bg-card text-left shadow-sm transition-colors hover:border-blue-500/50 hover:bg-blue-50/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:hover:bg-blue-950/20"
             aria-live="polite"
+            title="Open active Service Bulletin upload"
           >
             <div className="flex items-center gap-2 px-2.5 py-1">
               <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-blue-600/10 text-blue-600">
@@ -124,7 +136,73 @@ export function Header() {
                 transition={{ duration: 0.25 }}
               />
             </div>
-          </motion.div>
+          </motion.button>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence initial={false}>
+        {svrUpload.isBusy && (
+          <motion.button
+            type="button"
+            onClick={svrUpload.restore}
+            key="svr-upload"
+            initial={{ opacity: 0, y: -8, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -8, scale: 0.96 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+            className="w-48 shrink-0 overflow-hidden rounded-xl border border-cyan-500/30 bg-card text-left shadow-sm transition-colors hover:border-cyan-500/60 hover:bg-cyan-50/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500 dark:hover:bg-cyan-950/20"
+            aria-live="polite"
+            title="Open active SVR upload"
+          >
+            <div className="flex items-center gap-2 px-2.5 py-1">
+              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-cyan-600/10 text-cyan-700">
+                <Loader2 size={13} className="animate-spin" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[10px] font-semibold text-foreground">
+                  {svrUpload.status === "processing" ? "Processing SVR" : `Uploading SVR · ${svrUpload.progress}%`}
+                </div>
+                <div className="truncate text-[9px] text-muted-foreground">
+                  {svrUpload.files.length === 1 ? svrUpload.files[0]?.name : `${svrUpload.files.length} PDF files`}
+                </div>
+              </div>
+            </div>
+            <div className="h-0.5 bg-cyan-100 dark:bg-cyan-950">
+              <motion.div className="h-full bg-gradient-to-r from-cyan-700 to-sky-400" animate={{ width: `${svrUpload.progress}%` }} transition={{ duration: 0.25 }} />
+            </div>
+          </motion.button>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence initial={false}>
+        {edsUpload.isBusy && (
+          <motion.button
+            type="button"
+            onClick={edsUpload.restore}
+            key="eds-upload"
+            initial={{ opacity: 0, y: -8, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -8, scale: 0.96 }}
+            transition={{ duration: 0.2, ease: "easeOut" }}
+            className="w-48 shrink-0 overflow-hidden rounded-xl border border-indigo-500/30 bg-card text-left shadow-sm transition-colors hover:border-indigo-500/60 hover:bg-indigo-50/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 dark:hover:bg-indigo-950/20"
+            aria-live="polite"
+            title="Open active EDS upload"
+          >
+            <div className="flex items-center gap-2 px-2.5 py-1">
+              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-indigo-600/10 text-indigo-700">
+                <Loader2 size={13} className="animate-spin" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[10px] font-semibold text-foreground">
+                  {edsUpload.status === "processing" ? "Processing EDS" : `Uploading EDS · ${edsUpload.progress}%`}
+                </div>
+                <div className="truncate text-[9px] text-muted-foreground">{edsUpload.file?.name || "Engine Data Sheet"}</div>
+              </div>
+            </div>
+            <div className="h-0.5 bg-indigo-100 dark:bg-indigo-950">
+              <motion.div className="h-full bg-gradient-to-r from-indigo-800 to-blue-500" animate={{ width: `${edsUpload.progress}%` }} transition={{ duration: 0.25 }} />
+            </div>
+          </motion.button>
         )}
       </AnimatePresence>
 
@@ -191,11 +269,7 @@ export function Header() {
         AI Assist
       </button>
 
-      {/* Notifications */}
-      <button className="relative p-1.5 rounded-lg hover:bg-accent transition-colors">
-        <Bell size={16} className="text-muted-foreground" />
-        <span className="absolute top-1 right-1 w-1.5 h-1.5 rounded-full" style={{ background: '#00C2FF' }} />
-      </button>
+      <NotificationCenter />
 
       {/* Dark Mode */}
       <button onClick={toggleDarkMode} className="p-1.5 rounded-lg hover:bg-accent transition-colors" title={darkMode ? 'Light mode' : 'Dark mode'}>

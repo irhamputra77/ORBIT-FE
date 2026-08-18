@@ -2,7 +2,10 @@
 
 import axios from "axios";
 import { useEffect, useMemo, useState } from "react";
-import { getApprovalRequests } from "../services/approvalRequestApi";
+import {
+  getApprovalRequests,
+  type ApprovalRequestCollection,
+} from "../services/approvalRequestApi";
 import type {
   ApprovalRequestListParams,
   ApprovalRequestListResult,
@@ -21,12 +24,15 @@ const EMPTY_RESULT: ApprovalRequestListResult = {
 export function useApprovalRequests(
   params: ApprovalRequestListParams,
   enabled = true,
+  collection: ApprovalRequestCollection = "inbox",
 ) {
   const [result, setResult] = useState(EMPTY_RESULT);
   const [isLoading, setIsLoading] = useState(enabled);
+  const [completedRequestKey, setCompletedRequestKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [requestVersion, setRequestVersion] = useState(0);
   const serializedParams = useMemo(() => JSON.stringify(params), [params]);
+  const requestKey = `${collection}:${serializedParams}:${requestVersion}`;
 
   useEffect(() => {
     if (!enabled) return;
@@ -45,7 +51,7 @@ export function useApprovalRequests(
 
       try {
         setResult(
-          await getApprovalRequests(requestParams, controller.signal),
+          await getApprovalRequests(requestParams, controller.signal, collection),
         );
       } catch (caughtError: unknown) {
         if (!axios.isCancel(caughtError)) {
@@ -57,17 +63,22 @@ export function useApprovalRequests(
           );
         }
       } finally {
-        if (!controller.signal.aborted) setIsLoading(false);
+        if (!controller.signal.aborted) {
+          setCompletedRequestKey(requestKey);
+          setIsLoading(false);
+        }
       }
     }
 
     void load();
     return () => controller.abort();
-  }, [enabled, requestVersion, serializedParams]);
+  }, [collection, enabled, requestKey, serializedParams]);
 
   return {
     ...result,
-    isLoading: enabled ? isLoading : false,
+    isLoading: enabled
+      ? isLoading || completedRequestKey !== requestKey
+      : false,
     error: enabled ? error : null,
     retry: () => setRequestVersion((version) => version + 1),
   };

@@ -150,6 +150,7 @@ function createApplicability(
         aircraftType: scenario.fleet,
       },
       isApplicable: true,
+      dataSources: index % 2 === 0 ? ["IQ03", "EDS"] : ["SVR"],
       reason: "Engine type and configuration match the Service Bulletin effectivity.",
     })),
   };
@@ -185,6 +186,7 @@ export function mapPresentationScenarioToEesDetail(
     manufacturer: getManufacturer(scenario.engineType),
     publicationDate: scenario.createdAt,
     receivedAt: scenario.createdAt,
+    complianceCategory: scenario.category,
     category: scenario.category,
     warranty: evaluations.some((item) => item.warranty) ? "Y" : "N",
     rep: evaluations.find((item) => item.rep)?.rep || null,

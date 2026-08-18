@@ -39,14 +39,11 @@ export async function POST(
 
   const assignedToId = incomingForm.get("assignedToId");
   if (
-    assignedToId !== null
-    && (
-      typeof assignedToId !== "string"
-      || !/^[1-9]\d*$/.test(assignedToId)
-    )
+    typeof assignedToId !== "string"
+    || !/^[a-zA-Z0-9_-]{1,128}$/.test(assignedToId)
   ) {
     return apiJson(
-      { message: "assignedToId harus berupa bilangan bulat positif." },
+      { message: "assignedToId wajib diisi dengan User ID yang valid." },
       { status: 400 },
     );
   }
@@ -71,9 +68,7 @@ export async function POST(
   }
 
   const outgoingForm = new FormData();
-  if (typeof assignedToId === "string") {
-    outgoingForm.append("assignedToId", assignedToId);
-  }
+  outgoingForm.append("assignedToId", assignedToId);
   if (signature instanceof File) {
     outgoingForm.append("signature", signature, signature.name);
   }

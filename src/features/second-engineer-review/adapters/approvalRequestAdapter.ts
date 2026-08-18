@@ -20,6 +20,13 @@ function optionalText(value: unknown) {
   return result || null;
 }
 
+function templateValue(value: unknown): "garuda" | "citilink" | null {
+  const normalized = optionalText(value)?.toLowerCase();
+  return normalized === "garuda" || normalized === "citilink"
+    ? normalized
+    : null;
+}
+
 function nonNegativeInteger(value: unknown, fallback: number) {
   const parsed = typeof value === "number" ? value : Number(value);
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
@@ -28,10 +35,25 @@ function nonNegativeInteger(value: unknown, fallback: number) {
 export function mapApprovalRequest(value: unknown): ApprovalReviewItem | null {
   if (!isRecord(value)) return null;
 
-  const eesDocument = isRecord(value.eesDocument) ? value.eesDocument : {};
-  const sourceSb = isRecord(eesDocument.sourceSb) ? eesDocument.sourceSb : {};
+  // The reviewer inbox returns `ees` and `serviceBulletin`, while the legacy
+  // approval list/detail endpoints return `eesDocument.sourceSb`. Normalize
+  // both contracts here so the review UI does not depend on endpoint shape.
+  const eesDocument = isRecord(value.eesDocument)
+    ? value.eesDocument
+    : isRecord(value.ees)
+      ? value.ees
+      : {};
+  const sourceSb = isRecord(value.serviceBulletin)
+    ? value.serviceBulletin
+    : isRecord(eesDocument.serviceBulletin)
+      ? eesDocument.serviceBulletin
+    : isRecord(eesDocument.sourceSb)
+      ? eesDocument.sourceSb
+      : isRecord(value.sourceSb)
+        ? value.sourceSb
+        : {};
   const operator = isRecord(sourceSb.operator) ? sourceSb.operator : {};
-  const approvalId = text(value.id);
+  const approvalId = text(value.approvalId, text(value.id));
   const eesId = text(value.eesId, text(eesDocument.id));
 
   if (!approvalId || !eesId) return null;
@@ -53,7 +75,10 @@ export function mapApprovalRequest(value: unknown): ApprovalReviewItem | null {
     reviewedAt: optionalText(value.reviewedAt),
     comment: optionalText(value.comment),
     eesNumber: text(eesDocument.eesNumber, "—"),
-    sourceSbId: text(eesDocument.sourceSbId, text(sourceSb.id)),
+    sourceSbId: text(
+      value.serviceBulletinId ?? value.sourceSbId,
+      text(eesDocument.sourceSbId, text(sourceSb.id)),
+    ),
     bulletinNumber: text(sourceSb.sbNumber, "—"),
     bulletinTitle: text(sourceSb.title, "—"),
     taskType: optionalText(eesDocument.taskType),
@@ -71,7 +96,10 @@ export function mapApprovalRequest(value: unknown): ApprovalReviewItem | null {
     ),
     esn: optionalText(eesDocument.esn),
     partNumber: optionalText(eesDocument.partNumber),
-    operatorId: optionalText(sourceSb.operatorId),
+    eesTemplate: templateValue(
+      eesDocument.eesTemplate ?? sourceSb.selectedEesTemplate,
+    ),
+    operatorId: optionalText(sourceSb.operatorId ?? operator.id),
     operatorCode: optionalText(operator.code),
     operatorName: optionalText(operator.name),
     createdByName: submittedById,
@@ -88,14 +116,18 @@ export function mapApprovalRequestList(
 ): ApprovalRequestListResult {
   const response = isRecord(value) ? value : {};
   const data = Array.isArray(response.data) ? response.data : [];
-  const page = nonNegativeInteger(response.page, 1) || 1;
-  const limit = nonNegativeInteger(response.limit, 20) || 20;
-  const total = nonNegativeInteger(response.total, data.length);
+  const meta = isRecord(response.meta) ? response.meta : {};
+  const page = nonNegativeInteger(meta.page ?? response.page, 1) || 1;
+  const limit = nonNegativeInteger(meta.limit ?? response.limit, 20) || 20;
+  const total = nonNegativeInteger(meta.total ?? response.total, data.length);
   const pagination: ApprovalRequestPagination = {
     page,
     limit,
     total,
-    totalPages: Math.max(1, Math.ceil(total / limit)),
+    totalPages: Math.max(
+      1,
+      nonNegativeInteger(meta.totalPages ?? response.totalPages, Math.ceil(total / limit)),
+    ),
   };
 
   return {

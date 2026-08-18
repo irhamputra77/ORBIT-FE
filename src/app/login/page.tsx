@@ -15,6 +15,8 @@ import {
   Mail,
 } from "lucide-react";
 import { useLogin } from "@/features/authentication";
+import { SHOW_NOTIFICATION_TOAST_AFTER_LOGIN } from "@/features/notifications";
+import { SmoothLoadingScreen } from "@/components/orbit/SmoothNavigationProvider";
 
 const heroFeatures = [
   {
@@ -45,6 +47,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [isRedirecting, setIsRedirecting] = useState(false);
   const { submitLogin, isLoading, error } = useLogin();
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -54,14 +57,24 @@ export default function LoginPage() {
     const result = await submitLogin({ email: email.trim(), password, rememberMe });
     if (!result) return;
 
+    setIsRedirecting(true);
     const storage = rememberMe ? window.localStorage : window.sessionStorage;
     storage.setItem("orbit_user", JSON.stringify(result.user));
+    window.sessionStorage.setItem(SHOW_NOTIFICATION_TOAST_AFTER_LOGIN, "1");
     router.replace("/dashboard");
     router.refresh();
   };
 
   return (
     <main className="relative min-h-screen overflow-hidden bg-[#061341] lg:h-screen">
+      <link
+        rel="preload"
+        href="/images/loading.gif"
+        as="image"
+        type="image/gif"
+      />
+      <SmoothLoadingScreen visible={isLoading || isRedirecting} />
+
       <Image
         src="/images/gmf-hangar-4.jpg"
         alt="GMF AeroAsia Hangar 4"

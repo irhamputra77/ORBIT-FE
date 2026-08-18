@@ -1,5 +1,5 @@
 export type DatabaseTab = "search" | "upload";
-export type DatabaseSource = "IQ03" | "SVR" | "EDS" | "SB";
+export type DatabaseSource = "ENGINE" | "IQ03" | "SVR" | "EDS" | "SB";
 
 export type ShopVisitReportUploadStatus =
   | "idle"
@@ -13,7 +13,9 @@ export type ShopVisitReportUploadStatus =
 
 export interface ShopVisitReport {
   id: string;
+  isDummy?: boolean;
   engineSerialNumber: string;
+  engineId?: string | null;
   engineType?: string | null;
   shopInDate?: string | null;
   shopOutDate?: string | null;
@@ -26,10 +28,15 @@ export interface ShopVisitReport {
   tslv?: string | null;
   cslv?: string | null;
   authorizedReleaseStatus?: string | null;
+  rawPayload?: Record<string, unknown> | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
   engine?: ShopVisitReportEngine | null;
   configurationReport?: ShopVisitConfigurationItem[];
   llpStatus?: ShopVisitLlpItem[];
+  sbStatus?: ShopVisitSbStatus[];
   adStatus?: ShopVisitAdStatus[];
+  accessoriesList?: ShopVisitAccessoryItem[];
   complianceRecords?: ShopVisitComplianceRecord[];
   [key: string]: unknown;
 }
@@ -37,7 +44,13 @@ export interface ShopVisitReport {
 export interface ShopVisitReportEngine {
   id?: string;
   esn?: string | null;
+  msn?: string | null;
   model?: string | null;
+  position?: string | null;
+  aircraftId?: string | null;
+  active?: boolean | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
   [key: string]: unknown;
 }
 
@@ -64,18 +77,47 @@ export interface ShopVisitLlpItem {
   serialNumber?: string | null;
   totalHour?: string | null;
   totalCycle?: string | null;
-  totalCyclesCategory?: Record<string, unknown> | null;
-  lifeLimitCycles?: Record<string, unknown> | null;
-  remainingCycles?: Record<string, unknown> | null;
+  totalCyclesCategory?: unknown;
+  lifeLimitCycles?: unknown;
+  remainingCycles?: unknown;
   remark?: string | null;
+}
+
+export interface ShopVisitSbStatus {
+  id?: string;
+  sbNumber?: string | null;
+  notificationDateOfCompliance?: string | null;
+  description?: string | null;
+  catType?: string | null;
+  moduleApplicability?: string | null;
+  methodOfCompliance?: string | null;
+  remarks?: string | null;
 }
 
 export interface ShopVisitComplianceRecord {
   id?: string;
+  engineId?: string | null;
+  sbId?: string | null;
+  adId?: string | null;
   status?: string | null;
   complianceDate?: string | null;
   remarks?: string | null;
-  sb?: { sbNumber?: string | null; title?: string | null } | null;
+  sourceDate?: string | null;
+  resolutionReason?: string | null;
+  sb?: {
+    id?: string | null;
+    sbNumber?: string | null;
+    revision?: string | null;
+    title?: string | null;
+    status?: string | null;
+    aircraftType?: string | null;
+    complianceCategory?: number | null;
+  } | null;
+  ad?: {
+    id?: string | null;
+    adNumber?: string | null;
+    title?: string | null;
+  } | null;
   [key: string]: unknown;
 }
 
@@ -89,6 +131,16 @@ export interface ShopVisitAdStatus {
   moduleApplicability?: string | null;
   methodOfCompliance?: string | null;
   remarks?: string | null;
+}
+
+export interface ShopVisitAccessoryItem {
+  id?: string;
+  description?: string | null;
+  partNumber?: string | null;
+  serialNumber?: string | null;
+  position?: string | null;
+  status?: string | null;
+  [key: string]: unknown;
 }
 
 export interface ShopVisitReportListResponse {

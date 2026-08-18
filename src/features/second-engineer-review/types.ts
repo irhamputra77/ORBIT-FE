@@ -36,6 +36,7 @@ export type ApprovalReviewItem = {
   aircraftType: string | null;
   esn: string | null;
   partNumber: string | null;
+  eesTemplate?: "garuda" | "citilink" | null;
   operatorId: string | null;
   operatorCode: string | null;
   operatorName: string | null;

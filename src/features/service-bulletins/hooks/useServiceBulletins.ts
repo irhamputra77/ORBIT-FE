@@ -2,14 +2,23 @@
 
 import axios from "axios";
 import { useEffect, useMemo, useState } from "react";
-import { getAllServiceBulletins, getServiceBulletins } from "../services/serviceBulletinApi";
+import {
+  getAllPendingServiceBulletins,
+  getAllServiceBulletins,
+  getPendingServiceBulletins,
+  getServiceBulletins,
+} from "../services/serviceBulletinApi";
 import type { ServiceBulletinListParams, ServiceBulletinListResult } from "../types";
 
 const EMPTY_RESULT: ServiceBulletinListResult = { items: [], total: 0, page: 1, limit: 10 };
 
 export function useServiceBulletins(
   params: ServiceBulletinListParams,
-  options: { fetchAll?: boolean; enabled?: boolean } = {},
+  options: {
+    fetchAll?: boolean;
+    enabled?: boolean;
+    pendingOnly?: boolean;
+  } = {},
 ) {
   const [result, setResult] = useState<ServiceBulletinListResult>(EMPTY_RESULT);
   const [isLoading, setIsLoading] = useState(options.enabled !== false);
@@ -18,6 +27,7 @@ export function useServiceBulletins(
   const serializedParams = useMemo(() => JSON.stringify(params), [params]);
   const fetchAll = options.fetchAll === true;
   const enabled = options.enabled !== false;
+  const pendingOnly = options.pendingOnly === true;
 
   useEffect(() => {
     if (!enabled) return;
@@ -33,8 +43,16 @@ export function useServiceBulletins(
       setError(null);
 
       try {
+        const fetchServiceBulletins = pendingOnly
+          ? fetchAll
+            ? getAllPendingServiceBulletins
+            : getPendingServiceBulletins
+          : fetchAll
+            ? getAllServiceBulletins
+            : getServiceBulletins;
+
         setResult(
-          await (fetchAll ? getAllServiceBulletins : getServiceBulletins)(
+          await fetchServiceBulletins(
             requestParams,
             controller.signal,
           ),
@@ -57,7 +75,7 @@ export function useServiceBulletins(
     void loadServiceBulletins();
 
     return () => controller.abort();
-  }, [enabled, fetchAll, serializedParams, requestVersion]);
+  }, [enabled, fetchAll, pendingOnly, serializedParams, requestVersion]);
 
   return {
     ...result,

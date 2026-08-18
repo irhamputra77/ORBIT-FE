@@ -8,6 +8,7 @@ import type {
   ServiceBulletinEesEvaluation,
   ServiceBulletinViewModel,
   WarrantyValue,
+  EesTemplateOperator,
 } from "../types";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -56,6 +57,16 @@ function numberValue(value: unknown) {
   return null;
 }
 
+function confidencePercentage(value: unknown) {
+  const score = numberValue(value);
+  if (score === null || score < 0) return null;
+
+  const percentage = score <= 1 ? score * 100 : score;
+  if (percentage > 100) return null;
+
+  return Math.round(percentage * 10) / 10;
+}
+
 function warrantyValue(value: unknown): WarrantyValue {
   if (value === true) return "Y";
   if (value === false) return "N";
@@ -65,6 +76,15 @@ function warrantyValue(value: unknown): WarrantyValue {
   if (["TRUE", "YES", "Y", "1"].includes(normalized)) return "Y";
   if (["FALSE", "NO", "N", "0"].includes(normalized)) return "N";
   return "";
+}
+
+function eesTemplateValue(...values: unknown[]): EesTemplateOperator | null {
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "garuda" || normalized === "citilink") return normalized;
+  }
+  return null;
 }
 
 function inferRevision(...values: unknown[]) {
@@ -230,6 +250,7 @@ function mapRelationship(value: unknown): ServiceBulletinRelationship | null {
     type,
     rawType: rawType?.toUpperCase() ?? null,
     status: nullableString(target.status ?? value.documentStatus),
+    syncStatus: nullableString(value.syncStatus)?.toUpperCase() ?? null,
     direction,
     executionMode,
     alternativeGroup: nullableString(value.alternativeGroup ?? value.alternative_group),
@@ -301,8 +322,10 @@ function mapReviewAction(value: unknown): ServiceBulletinReviewAction | null {
 export function mapServiceBulletin(value: unknown): ServiceBulletinViewModel {
   const sb = isRecord(value) ? value : {};
   const ocrResult = isRecord(sb.ocrResult) ? sb.ocrResult : {};
+  const confidenceScore = parseRecord(ocrResult.confidenceScore);
   const rawPayload = parseRecord(sb.rawPayload ?? ocrResult.rawPayload);
   const createdBy = isRecord(sb.createdBy) ? sb.createdBy : {};
+  const operator = isRecord(sb.operator) ? sb.operator : {};
   const generatedEes = isRecord(sb.generatedEes) ? sb.generatedEes : {};
   const evaluations = Array.isArray(generatedEes.evaluations)
     ? generatedEes.evaluations.map(mapEvaluation).filter((item): item is ServiceBulletinEesEvaluation => item !== null)
@@ -319,6 +342,8 @@ export function mapServiceBulletin(value: unknown): ServiceBulletinViewModel {
   const engineeringRec = isRecord(sb.engineeringRec) ? sb.engineeringRec : {};
   const extractedItems = extractItems(rawPayload);
   const nestedReferences = extractedItems.flatMap(item => item.references);
+  const complianceCategory = numberValue(sb.complianceCategory)
+    ?? numberValue(rawPayload.compliance_category);
 
   return {
     evaluations,
@@ -329,7 +354,8 @@ export function mapServiceBulletin(value: unknown): ServiceBulletinViewModel {
     manufacturer: String(rawPayload.manufacturer ?? sb.issuer ?? ""),
     publicationDate: nullableString(sb.issueDate),
     receivedAt: nullableString(sb.receivedAt),
-    category: numberValue(sb.complianceCategory) ?? numberValue(rawPayload.compliance_category),
+    complianceCategory,
+    category: complianceCategory,
     impactType: nullableString(sb.impactType ?? rawPayload.impact_type ?? rawPayload.impactType),
     aircraftType: nullableString(sb.aircraftType ?? generatedEes.aircraftType),
     effectivityType: nullableString(sb.effectivityType ?? generatedEes.effectedType ?? rawPayload.effected_type ?? rawPayload.effectivityType),
@@ -338,8 +364,11 @@ export function mapServiceBulletin(value: unknown): ServiceBulletinViewModel {
     compliancePeriod: nullableString(sb.compliancePeriod ?? rawPayload.compliance_period ?? rawPayload.due_at),
     sbType: nullableString(sb.sbType),
     operatorId: nullableString(sb.operatorId),
+    operatorCode: nullableString(operator.code),
+    operatorName: nullableString(operator.name),
     ocrStatus: nullableString(ocrResult.ocrStatus),
     draftStatus: nullableString(ocrResult.draftStatus),
+    aiConfidence: confidencePercentage(confidenceScore.score),
     references: firstStringList(generatedEes.references, rawPayload.references, rawPayload.reference, nestedReferences),
     affectedESNs: firstStringList(
       rawPayload.affectedESNs,
@@ -364,6 +393,23 @@ export function mapServiceBulletin(value: unknown): ServiceBulletinViewModel {
     inputSource: (sb.createdById || createdBy.id || String(sb.id ?? "").startsWith("SB-DOC-"))
       ? "USER_UPLOAD"
       : "MAIN_DATABASE",
+    eesTemplate: eesTemplateValue(
+      sb.selectedEesTemplate,
+      sb.eesTemplate,
+      sb.selectedTemplate,
+      sb.template,
+      sb.outputTemplate,
+      generatedEes.eesTemplate,
+      generatedEes.selectedEesTemplate,
+      generatedEes.selectedTemplate,
+      generatedEes.template,
+      generatedEes.outputTemplate,
+      rawPayload.eesTemplate,
+      rawPayload.selectedEesTemplate,
+      rawPayload.selectedTemplate,
+      rawPayload.template,
+      rawPayload.outputTemplate,
+    ),
     eesNumber: nullableString(generatedEes.eesNumber),
     generatedEesId: nullableString(generatedEes.id),
     eesReviewStatus: nullableString(generatedEes.reviewStatus),

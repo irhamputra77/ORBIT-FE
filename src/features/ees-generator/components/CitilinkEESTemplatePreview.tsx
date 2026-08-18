@@ -3,53 +3,65 @@
 import { Edit3 } from "lucide-react";
 import { DatePicker } from "@/components/ui/date-picker";
 import { formatDateTime } from "@/lib/date-time";
+import {
+  CITILINK_ACCOMPLISHMENT_METHODS,
+  CITILINK_COMPONENT_TYPES,
+  CITILINK_CONSEQUENCES,
+  CITILINK_DEFAULT_REASON_OF_EVALUATION,
+  CITILINK_ENGINEERING_ACTIONS,
+  CITILINK_FURTHER_IMPLEMENTATION,
+  CITILINK_INSPECTION_TYPES,
+  CITILINK_MAINTENANCE_OPTIONS,
+  CITILINK_MANAGEMENT_APPROVAL,
+  CITILINK_REASON_OPTIONS,
+  CITILINK_UNIT_CONCERNS,
+  citilinkSources,
+  consequenceFromEngineeringAction,
+  getCitilinkField,
+  normalizeAccomplishmentMethod,
+  normalizeComponentType,
+  normalizeEngineeringAction,
+  normalizeFurtherImplementation,
+  normalizeInspectionType,
+  normalizeMaintenanceLevel,
+  normalizeManagementApproval,
+  normalizeReasonOfEvaluation,
+  normalizeUnitConcern,
+  type CitilinkEditableValue,
+} from "../services/citilink-fields";
+import { MultiValueFieldEditor } from "./MultiValueFieldEditor";
+import DOMPurify from "isomorphic-dompurify";
 
 type CitilinkPreviewData = Record<string, unknown>;
 
 type CitilinkEESTemplatePreviewProps = {
   ees: CitilinkPreviewData;
   editableFields?: boolean;
-  onFieldChange?: (field: string, value: string) => void;
+  onFieldChange?: (field: string, value: CitilinkEditableValue) => void;
+  engineeringActionEditable?: boolean;
+  furtherImplementationEditable?: boolean;
   docViewerOpen?: boolean;
+  compactFields?: boolean;
+  invalidFields?: readonly string[];
 };
-
-const UNIT_CONCERNS = ["TEA-1", "TEA-2", "TEA-3", "TEA-4", "TEA-5"];
-const PART_CLASSIFICATIONS = ["Component", "Tool and Equipment", "Part"];
-const REASONS = [
-  "Affects A/C Operation",
-  "Pax or Crew Satisfaction",
-  "Improve Maintainability",
-  "To Meet Company Policy",
-  "Improve A/C Performance",
-  "Improve Reliability",
-  "Safety",
-  "To Comply With Government / Authority Regulatory Requirement",
-];
-const MAINTENANCE_LEVELS = [
-  "To be performed prior to certain date",
-  "To be performed prior to certain hours/cycles",
-  "To be performed at next maint. Scheduled",
-  "To be performed at attrition basis",
-];
-const CONSEQUENCES = ["Affected", "Not Affected"];
-const ACCOMPLISHMENT_METHODS = ["Modification", "Inspection", "Other"];
-const ENGINEERING_ACTIONS = ["Yes", "No", "Hold/Postpone"];
-const FURTHER_IMPLEMENTATION = [
-  "Engineering Order",
-  "Manual Revision",
-  "Engineering Information",
-  "Other",
-  "M.S. Revision",
-];
-const MANAGEMENT_APPROVAL = ["TEA", "WQR", "DE"];
 
 function toText(value: unknown, fallback = ""): string {
   if (typeof value === "string" || typeof value === "number") return String(value);
   return fallback;
 }
 
+function toTextBlock(value: unknown, fallback = ""): string {
+  if (Array.isArray(value)) {
+    const lines = value.map(item => String(item).trim()).filter(Boolean);
+    return lines.length ? lines.join("\n") : fallback;
+  }
+  return toText(value, fallback);
+}
+
 function toList(value: unknown, fallback: string[] = []): string[] {
-  if (Array.isArray(value)) return value.map(String);
+  if (Array.isArray(value)) {
+    return value.map(item => String(item).trim()).filter(Boolean);
+  }
   if (typeof value === "string") {
     return value.split(",").map(item => item.trim()).filter(Boolean);
   }
@@ -78,15 +90,17 @@ export function getMissingCitilinkRequiredFields(
   ees: CitilinkPreviewData,
   options: { allowEmptyEesNumber?: boolean } = {},
 ) {
-  const citilinkOptions = (ees.citilinkOptions ?? {}) as CitilinkPreviewData;
+  const sources = citilinkSources(ees);
   const fieldValue = (key: string, ...fallbackKeys: string[]) => {
-    const keys = [key, ...fallbackKeys];
-    for (const candidate of keys) {
-      const candidateValue = ees[candidate] ?? citilinkOptions[candidate];
-      if (candidateValue !== undefined && candidateValue !== null) return candidateValue;
-    }
-    return undefined;
+    if (Object.prototype.hasOwnProperty.call(ees, key)) return ees[key];
+    return getCitilinkField(sources, key, ...fallbackKeys);
   };
+  const evaluationResult = fieldValue("evaluationResult", "evaluation_result");
+  // Older/generated EES records keep this content in the evaluation remarks.
+  // The preview already displays that value as the fallback, therefore the
+  // required-field check must use the identical fallback.
+  const hasEvaluationResult = hasValue(evaluationResult)
+    || hasValue(getCitilinkField(sources, "remarks"));
 
   return [
     !options.allowEmptyEesNumber && !hasValue(fieldValue("eesNumber")) ? "EES No." : null,
@@ -96,9 +110,14 @@ export function getMissingCitilinkRequiredFields(
     !hasValue(fieldValue("bulletinType") ?? "Service Bulletin") ? "Bull Type" : null,
     !hasValue(fieldValue("subject", "description")) ? "Subject" : null,
     !hasValue(fieldValue("aircraftType", "fleet")) ? "Aircraft Type" : null,
-    !hasValue(fieldValue("reasonOfEvaluation")) ? "Reason of Evaluation" : null,
-    !hasValue(fieldValue("evaluationResult", "remarks")) ? "Evaluation Result" : null,
-    !hasValue(fieldValue("engineeringAction")) ? "Engineering Action" : null,
+    !hasValue(
+      normalizeReasonOfEvaluation(
+        fieldValue("reasonOfEvaluation") ?? CITILINK_DEFAULT_REASON_OF_EVALUATION,
+      ),
+    ) ? "Reason of Evaluation" : null,
+    !hasEvaluationResult ? "Evaluation Result" : null,
+    !hasValue(fieldValue("engineeringAction", "recommendedAction", "recommended_action")) ? "Engineering Action" : null,
+    !hasValue(fieldValue("furtherImplementation", "furtherImpl")) ? "Further Implementation" : null,
     !hasValue(fieldValue("managementApproval") ?? ["TEA"]) ? "Management Approval" : null,
   ].filter((field): field is string => field !== null);
 }
@@ -110,6 +129,8 @@ function TextField({
   editable,
   multiline,
   date,
+  renderHtml,
+  invalid = false,
   onChange,
 }: {
   label: string;
@@ -118,13 +139,22 @@ function TextField({
   editable?: boolean;
   multiline?: boolean;
   date?: boolean;
+  renderHtml?: boolean;
+  invalid?: boolean;
   onChange?: (field: string, value: string) => void;
 }) {
-  const className = "w-full rounded-md border border-emerald-800/20 bg-emerald-500/[0.035] px-2 py-1.5 text-xs text-foreground outline-none focus:border-emerald-600";
+  const className = `w-full rounded-md border bg-emerald-500/[0.035] px-2 py-1.5 text-xs text-foreground outline-none ${invalid
+    ? "border-red-500 ring-1 ring-red-500/20 focus:border-red-600"
+    : "border-emerald-800/20 focus:border-emerald-600"}`;
 
   return (
-    <div className="min-w-0">
-      <div className="mb-1 text-[10px] font-semibold text-muted-foreground">{label}</div>
+    <div
+      id={`ees-field-${field}`}
+      className={`min-w-0 rounded-lg ${invalid ? "bg-red-500/[0.045] p-2 ring-1 ring-red-500/35" : ""}`}
+    >
+      <div className={`mb-1 text-[10px] font-semibold ${invalid ? "text-red-600" : "text-muted-foreground"}`}>
+        {label}{invalid && <span className="ml-1 font-bold">Required</span>}
+      </div>
       {editable ? (
         date ? (
           <DatePicker
@@ -144,10 +174,30 @@ function TextField({
         )
       ) : (
         <div className="min-h-5 whitespace-pre-wrap text-xs font-medium text-foreground">
-          {date ? formatDateTime(value) : value || "—"}
+          {date
+            ? formatDateTime(value)
+            : renderHtml
+              ? <HtmlContent html={value} />
+              : value || "—"}
         </div>
       )}
     </div>
+  );
+}
+
+function HtmlContent({ html }: { html?: string | null }) {
+  if (!html) return <span>—</span>;
+
+  const safeHtml = DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: ["p", "br", "strong", "b", "em", "i", "u", "ul", "ol", "li", "span"],
+    ALLOWED_ATTR: [],
+  });
+
+  return (
+    <div
+      className="text-xs font-medium leading-relaxed text-foreground [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:mb-2 [&_p:last-child]:mb-0 [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5"
+      dangerouslySetInnerHTML={{ __html: safeHtml }}
+    />
   );
 }
 
@@ -158,31 +208,43 @@ function CheckGroup({
   selected,
   editable,
   onChange,
+  single = false,
+  lockedOptions = [],
+  invalid = false,
 }: {
   label: string;
   field: string;
   options: string[];
   selected: string[];
   editable?: boolean;
-  onChange?: (field: string, value: string) => void;
+  onChange?: (field: string, value: string[]) => void;
+  single?: boolean;
+  lockedOptions?: string[];
+  invalid?: boolean;
 }) {
   const toggle = (option: string) => {
+    if (lockedOptions.includes(option)) return;
     const next = selected.includes(option)
       ? selected.filter(item => item !== option)
-      : [...selected, option];
-    onChange?.(field, next.join(", "));
+      : single ? [option] : [...selected, option];
+    onChange?.(field, next);
   };
 
   return (
-    <div>
-      <div className="mb-1.5 text-[10px] font-semibold text-muted-foreground">{label}</div>
+    <div
+      id={`ees-field-${field}`}
+      className={`rounded-lg ${invalid ? "bg-red-500/[0.045] p-2 ring-1 ring-red-500/35" : ""}`}
+    >
+      <div className={`mb-1.5 text-[10px] font-semibold ${invalid ? "text-red-600" : "text-muted-foreground"}`}>
+        {label}{invalid && <span className="ml-1 font-bold">Required</span>}
+      </div>
       <div className="flex flex-wrap gap-x-4 gap-y-2">
         {options.map(option => (
           <label key={option} className={`flex items-start gap-1.5 text-[10px] leading-tight ${editable ? "cursor-pointer" : ""}`}>
             <input
               type="checkbox"
               checked={selected.includes(option)}
-              disabled={!editable}
+              disabled={!editable || lockedOptions.includes(option)}
               onChange={() => toggle(option)}
               className="mt-px h-3.5 w-3.5 accent-emerald-700"
             />
@@ -198,20 +260,94 @@ export function CitilinkEESTemplatePreview({
   ees,
   editableFields,
   onFieldChange,
+  engineeringActionEditable = false,
+  furtherImplementationEditable = false,
   docViewerOpen = false,
+  compactFields = false,
+  invalidFields = [],
 }: CitilinkEESTemplatePreviewProps) {
+  const invalidFieldSet = new Set(invalidFields);
+  const isInvalid = (...fields: string[]) => fields.some(field => invalidFieldSet.has(field));
   const options = (ees.citilinkOptions ?? {}) as CitilinkPreviewData;
-  const value = (key: string, fallback = "") => toText(ees[key] ?? options[key], fallback);
-  const list = (key: string, fallback: string[] = []) => toList(ees[key] ?? options[key], fallback);
+  const generatedEesDocument = (
+    ees.generatedEesDocument && typeof ees.generatedEesDocument === "object"
+      ? ees.generatedEesDocument
+      : {}
+  ) as CitilinkPreviewData;
+  const sources = citilinkSources(ees);
+  const field = (...keys: string[]) => getCitilinkField(sources, ...keys);
+  const editableField = (key: string, ...fallbackKeys: string[]) => (
+    Object.prototype.hasOwnProperty.call(ees, key)
+      ? ees[key]
+      : field(key, ...fallbackKeys)
+  );
+  const value = (key: string, fallback = "") => toText(field(key), fallback);
 
   const bulletinNumber = value("bulletinNumber");
   const engine = value("engineType", value("engine"));
   const ataValues = getAtaValues(bulletinNumber);
+  const unitConcern = normalizeUnitConcern(editableField("unitConcern"));
+  // Prefer editable Citilink keys so a legacy normalized DB value does not
+  // mask a checkbox change made by the user in Stage 4.
+  const componentType = normalizeComponentType(editableField("partClassification", "componentType", "component_type"));
+  const reasons = normalizeReasonOfEvaluation(
+    editableField("reasonOfEvaluation") ?? CITILINK_DEFAULT_REASON_OF_EVALUATION,
+  );
+  const maintenanceLevel = normalizeMaintenanceLevel(editableField("maintenanceLevel", "complianceTimeType", "compliance_time_type"));
+  const recommendedAction = field("recommendedAction", "recommended_action");
+  const engineeringAction = normalizeEngineeringAction(
+    editableField("engineeringAction") ?? recommendedAction,
+  );
+  const consequence = consequenceFromEngineeringAction(engineeringAction);
+  const accomplishmentMethod = normalizeAccomplishmentMethod(editableField("accomplishmentMethod", "taskType", "task_type"));
+  const inspectionType = normalizeInspectionType(
+    editableField("isRepetitive", "repetitive"),
+    field("compliancePeriod", "compliance_period", "dueCompliance"),
+    field("inspectionType"),
+  );
+  const furtherImplementation = normalizeFurtherImplementation(editableField("furtherImplementation", "furtherImpl"));
+  const managementApproval = normalizeManagementApproval(editableField("managementApproval"));
+  const warrantyValue = field("warranty");
+  const warranty = typeof warrantyValue === "boolean"
+    ? warrantyValue ? "Y" : "N"
+    : toText(warrantyValue);
+  const evaluationResult = toTextBlock(
+    field("evaluationResult", "evaluation_result"),
+    value("remarks"),
+  );
+  const evaluations = Array.isArray(ees.evaluations)
+    ? ees.evaluations.filter(
+        (evaluation): evaluation is CitilinkPreviewData =>
+          typeof evaluation === "object" && evaluation !== null,
+      )
+    : [];
+  const evaluationRep = evaluations.find(evaluation => hasValue(evaluation.rep))?.rep;
+  const applicable = value(
+    "applicable",
+    evaluations.length
+      ? evaluations.every(evaluation => evaluation.isApplicable !== false) ? "Yes" : "No"
+      : "",
+  );
+
+  const rep = value(
+    "rep",
+    toText(
+      evaluationRep,
+      typeof generatedEesDocument.isRepetitive === "boolean"
+        ? generatedEesDocument.isRepetitive ? "Y" : "N/A"
+        : "",
+    ),
+  );
+  const note = toText(
+    ees.note
+      ?? generatedEesDocument.note
+      ?? options.note,
+  );
   const references = toList(
     ees.otherReferences
       ?? options.otherReferences
-      ?? ees.referencesRaw
-      ?? ees.references,
+      ?? ees.references
+      ?? ees.referencesRaw,
   );
 
   return (
@@ -236,67 +372,178 @@ export function CitilinkEESTemplatePreview({
         )}
 
         <section className={`grid gap-4 px-4 py-4 ${docViewerOpen ? "grid-cols-2" : "grid-cols-1 md:grid-cols-4"}`}>
-          <TextField label="EES No." field="eesNumber" value={value("eesNumber")} editable={editableFields} onChange={onFieldChange} />
-          <TextField label="Issued Date" field="eesIssuedDate" value={value("eesIssuedDate", value("issueDate", value("evaluationDate")))} editable={editableFields} date onChange={onFieldChange} />
-          <div className={docViewerOpen ? "col-span-2" : "md:col-span-2"}><CheckGroup label="Unit Concern" field="unitConcern" options={UNIT_CONCERNS} selected={list("unitConcern", ["TEA-2"])} editable={editableFields} onChange={onFieldChange} /></div>
+          <TextField label="EES No." field="eesNumber" value={value("eesNumber")} editable={editableFields} invalid={isInvalid("EES No.")} onChange={onFieldChange} />
+          <TextField label="Issued Date" field="eesIssuedDate" value={value("eesIssuedDate", value("issueDate", value("evaluationDate")))} editable={editableFields} date invalid={isInvalid("EES Issued Date")} onChange={onFieldChange} />
+          <div className={docViewerOpen ? "col-span-2" : "md:col-span-2"}><CheckGroup label="Unit Concern" field="unitConcern" options={[...CITILINK_UNIT_CONCERNS]} selected={unitConcern.length ? unitConcern : ["TEA-2"]} editable={editableFields} invalid={isInvalid("Unit Concern")} onChange={onFieldChange} /></div>
           <div className={docViewerOpen ? "col-span-2" : "md:col-span-4"}><TextField label="Transfer To" field="transferTo" value={value("transferTo")} editable={editableFields} onChange={onFieldChange} /></div>
         </section>
 
         <section className={`grid gap-4 px-4 py-4 ${docViewerOpen ? "grid-cols-2" : "grid-cols-1 md:grid-cols-4"}`}>
-          <TextField label="Bulletin No." field="bulletinNumber" value={bulletinNumber} editable={editableFields} onChange={onFieldChange} />
-          <TextField label="Bull Type" field="bulletinType" value={value("bulletinType", "Service Bulletin")} editable={editableFields} onChange={onFieldChange} />
+          <TextField label="Bulletin No." field="bulletinNumber" value={bulletinNumber} editable={editableFields} invalid={isInvalid("Bulletin No.")} onChange={onFieldChange} />
+          <TextField label="Bull Type" field="bulletinType" value={value("bulletinType", "Service Bulletin")} editable={editableFields} invalid={isInvalid("Bull Type")} onChange={onFieldChange} />
           <TextField label="ATA" field="ata" value={value("ata", ataValues.ata)} editable={editableFields} onChange={onFieldChange} />
           <TextField label="Sub ATA" field="subAta" value={value("subAta", ataValues.subAta)} editable={editableFields} onChange={onFieldChange} />
           <TextField label="Manufacturer" field="manufacturer" value={value("manufacturer", getManufacturer(engine))} editable={editableFields} onChange={onFieldChange} />
           <TextField label="Issued Date" field="bulletinIssuedDate" value={value("bulletinIssuedDate", value("issueDate", value("evaluationDate")))} editable={editableFields} date onChange={onFieldChange} />
-          <div className={docViewerOpen ? "col-span-2" : "md:col-span-2"}><TextField label="Subject" field="subject" value={value("subject", value("description"))} editable={editableFields} onChange={onFieldChange} /></div>
-          <div className={docViewerOpen ? "col-span-2" : "md:col-span-4"}><TextField label="Other Ref." field="otherReferences" value={references.join(", ")} editable={editableFields} onChange={onFieldChange} /></div>
+          <div className={docViewerOpen ? "col-span-2" : "md:col-span-2"}><TextField label="Subject" field="subject" value={toText(field("subject", "title"))} editable={editableFields} invalid={isInvalid("Subject")} onChange={onFieldChange} /></div>
+          <div className={docViewerOpen ? "col-span-2" : "md:col-span-4"}>
+            <div className="mb-1 text-[10px] font-semibold text-muted-foreground">Other Ref.</div>
+            {editableFields ? (
+              <MultiValueFieldEditor
+                idPrefix="citilink-other-reference"
+                value={references}
+                itemLabel="Other Reference"
+                addLabel="Add Reference"
+                placeholder="Enter other reference"
+                helpText="Enter one reference per field."
+                onChange={entries => onFieldChange?.("otherReferences", entries)}
+                accent="emerald"
+                compact={compactFields}
+              />
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {references.map((reference, index) => (
+                  <span
+                    key={`${reference}-${index}`}
+                    className="rounded border border-emerald-800/20 bg-emerald-500/[0.035] px-2 py-1 text-[10px] font-mono text-foreground"
+                  >
+                    {reference}
+                  </span>
+                ))}
+                {!references.length && <span className="text-[10px] text-muted-foreground">—</span>}
+              </div>
+            )}
+          </div>
         </section>
 
         <section className={`grid gap-4 px-4 py-4 ${docViewerOpen ? "grid-cols-2" : "grid-cols-1 md:grid-cols-3"}`}>
-          <TextField label="Aircraft Type" field="aircraftType" value={value("aircraftType", value("fleet"))} editable={editableFields} onChange={onFieldChange} />
+          <TextField label="Aircraft Type" field="aircraftType" value={value("aircraftType", value("fleet"))} editable={editableFields} invalid={isInvalid("Aircraft Type")} onChange={onFieldChange} />
           <TextField label="Engine/APU" field="engineApu" value={value("engineApu", engine)} editable={editableFields} onChange={onFieldChange} />
           <div className={docViewerOpen ? "col-span-2" : ""}>
-            <TextField label="Part Number" field="partNumber" value={value("partNumber")} editable={editableFields} onChange={onFieldChange} />
+            <div className="mb-1 text-[10px] font-semibold text-muted-foreground">Affected Model</div>
+            {editableFields ? (
+              <MultiValueFieldEditor
+                idPrefix="citilink-affected-model"
+                value={ees.affectedModels}
+                fallbackValue={ees.effectedModel ?? ees.effectivitySB ?? engine}
+                itemLabel="Affected Model"
+                addLabel="Add Model"
+                placeholder="Enter affected model"
+                helpText="One model per field; submitted to the backend as one string."
+                onChange={entries => onFieldChange?.("affectedModels", entries)}
+                accent="emerald"
+                compact={compactFields}
+              />
+            ) : (
+              <div className="min-h-5 text-xs font-medium text-foreground">{toList(ees.affectedModels ?? ees.effectedModel ?? ees.effectivitySB ?? engine).join(", ") || "—"}</div>
+            )}
           </div>
-          <div className={docViewerOpen ? "col-span-2" : "md:col-span-3"}><CheckGroup label="Part Classification" field="partClassification" options={PART_CLASSIFICATIONS} selected={list("partClassification")} editable={editableFields} onChange={onFieldChange} /></div>
-          <div className={docViewerOpen ? "col-span-2" : "md:col-span-3"}><TextField label="Note" field="note" value={value("note")} editable={editableFields} multiline onChange={onFieldChange} /></div>
+          <div className={docViewerOpen ? "col-span-2" : ""}>
+            <div className="mb-1 text-[10px] font-semibold text-muted-foreground">Part Number</div>
+            {editableFields ? (
+              <MultiValueFieldEditor
+                idPrefix="citilink-part-number"
+                value={ees.affectedPartNumbers}
+                fallbackValue={ees.partNumber}
+                itemLabel="Part Number"
+                addLabel="Add Part Number"
+                placeholder="Enter part number"
+                helpText="One part number per field; submitted to the backend as one string."
+                onChange={entries => onFieldChange?.("affectedPartNumbers", entries)}
+                accent="emerald"
+                compact={compactFields}
+              />
+            ) : (
+              <div className="min-h-5 text-xs font-medium text-foreground">{toList(ees.affectedPartNumbers ?? ees.partNumber).join(", ") || "—"}</div>
+            )}
+          </div>
+          <div className={docViewerOpen ? "col-span-2" : ""}>
+            <div className="mb-1 text-[10px] font-semibold text-muted-foreground">Engine Serial Number (ESN)</div>
+            {editableFields ? (
+              <MultiValueFieldEditor
+                idPrefix="citilink-esn"
+                value={ees.affectedESNs}
+                fallbackValue={ees.esn ?? ees.affectedEngines}
+                itemLabel="Engine (ESN)"
+                addLabel="Add Engine"
+                placeholder="Enter ESN for engine"
+                helpText="One ESN per field; submitted to the backend as one string."
+                onChange={entries => onFieldChange?.("affectedESNs", entries)}
+                accent="emerald"
+                compact={compactFields}
+              />
+            ) : (
+              <div className="min-h-5 text-xs font-medium text-foreground">{toList(ees.affectedESNs ?? ees.esn ?? ees.affectedEngines).join(", ") || "—"}</div>
+            )}
+          </div>
+          <div className={docViewerOpen ? "col-span-2" : "md:col-span-3"}><CheckGroup label="Component Type" field="partClassification" options={[...CITILINK_COMPONENT_TYPES]} selected={componentType} editable={editableFields} onChange={onFieldChange} single /></div>
+          <div className={docViewerOpen ? "col-span-2" : "md:col-span-3"}><TextField label="Note" field="note" value={note} editable={editableFields} multiline onChange={onFieldChange} /></div>
         </section>
 
         <section className="px-5 py-4">
-          <CheckGroup label="Reason of Evaluation" field="reasonOfEvaluation" options={REASONS} selected={list("reasonOfEvaluation")} editable={editableFields} onChange={onFieldChange} />
+          <CheckGroup label="Reason of Evaluation" field="reasonOfEvaluation" options={[...CITILINK_REASON_OPTIONS]} selected={reasons} editable={editableFields} invalid={isInvalid("Reason of Evaluation")} onChange={onFieldChange} />
         </section>
 
         <section className={`grid grid-cols-1 gap-5 px-4 py-4 ${docViewerOpen ? "" : "lg:grid-cols-2"}`}>
           <div className="space-y-4">
-            <CheckGroup label="Maintenance Level" field="maintenanceLevel" options={MAINTENANCE_LEVELS} selected={list("maintenanceLevel")} editable={editableFields} onChange={onFieldChange} />
+            <CheckGroup label="Maintenance Level" field="maintenanceLevel" options={[...CITILINK_MAINTENANCE_OPTIONS]} selected={maintenanceLevel} editable={editableFields} onChange={onFieldChange} single />
             <TextField label="Date" field="maintenanceDate" value={value("maintenanceDate")} editable={editableFields} date onChange={onFieldChange} />
           </div>
-          <div className={`grid gap-3 ${docViewerOpen ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-3"}`}>
-            <TextField label="Warranty" field="warranty" value={value("warranty")} editable={editableFields} onChange={onFieldChange} />
-            <TextField label="Type" field="warrantyType" value={value("warrantyType")} editable={editableFields} onChange={onFieldChange} />
-            <TextField label="Due" field="warrantyDue" value={value("warrantyDue", value("warrantyDueDate"))} editable={editableFields} onChange={onFieldChange} />
-            <div className={docViewerOpen ? "" : "sm:col-span-3"}><TextField label="Note" field="warrantyNote" value={value("warrantyNote")} editable={editableFields} multiline onChange={onFieldChange} /></div>
+          <div className={`mx-auto grid w-full max-w-md grid-cols-2 gap-x-10 gap-y-3 text-center`}>
+            <div className="space-y-3 grid grid-cols-2 gap-x-10 gap-y-3 text-center">
+              <TextField label="Warranty" field="warranty" value={warranty} editable={editableFields} onChange={onFieldChange} />
+              <TextField label="Applicable" field="applicable" value={applicable} editable={editableFields} onChange={onFieldChange} />
+              <TextField label="Rep" field="rep" value={rep} editable={editableFields} onChange={onFieldChange} />
+            </div>
+            <div className="space-y-3 grid grid-cols-2 gap-x-10 gap-y-3 text-center">
+              <TextField label="Type" field="warrantyType" value={value("warrantyType")} editable={editableFields} onChange={onFieldChange} />
+              <TextField label="Due" field="warrantyDue" value={value("warrantyDue", value("warrantyDueDate", value("warranty_due_date")))} editable={editableFields} onChange={onFieldChange} />
+              <TextField label="Note" field="warrantyNote" value={value("warrantyNote", value("warranty_note"))} editable={editableFields} multiline onChange={onFieldChange} />
+            </div>
           </div>
         </section>
 
         <section className={`grid grid-cols-1 gap-5 px-4 py-4 ${docViewerOpen ? "" : "lg:grid-cols-3"}`}>
-          <CheckGroup label="Consequence" field="consequence" options={CONSEQUENCES} selected={list("consequence")} editable={editableFields} onChange={onFieldChange} />
-          <CheckGroup label="Accomplished Method" field="accomplishmentMethod" options={ACCOMPLISHMENT_METHODS} selected={list("accomplishmentMethod")} editable={editableFields} onChange={onFieldChange} />
-          <CheckGroup label="Inspection Type" field="inspectionType" options={["One Time"]} selected={list("inspectionType", ["One Time"])} editable={editableFields} onChange={onFieldChange} />
+          <CheckGroup
+            label="Consequence"
+            field="consequence"
+            options={[...CITILINK_CONSEQUENCES]}
+            selected={consequence}
+            editable={false}
+            single
+          />
+          <CheckGroup label="Accomplishment Method" field="accomplishmentMethod" options={[...CITILINK_ACCOMPLISHMENT_METHODS]} selected={accomplishmentMethod} editable={editableFields} onChange={onFieldChange} single />
+          <CheckGroup
+            label="Inspection Type"
+            field="inspectionType"
+            options={[...CITILINK_INSPECTION_TYPES]}
+            selected={inspectionType}
+            editable={editableFields}
+            single
+            onChange={(_, next) => onFieldChange?.("isRepetitive", next[0] === "Recurring")}
+          />
         </section>
 
         <section className="px-5 py-4">
-          <TextField label="Evaluation Result" field="evaluationResult" value={value("evaluationResult", value("remarks"))} editable={editableFields} multiline onChange={onFieldChange} />
+          <TextField
+            label="Evaluation Result"
+            field="evaluationResult"
+            value={evaluationResult}
+            editable={editableFields}
+            multiline
+            renderHtml
+            invalid={isInvalid("Evaluation Result")}
+            onChange={onFieldChange}
+          />
         </section>
 
         <section className={`grid grid-cols-1 gap-5 px-4 py-4 ${docViewerOpen ? "" : "lg:grid-cols-2"}`}>
-          <CheckGroup label="Engineering Action" field="engineeringAction" options={ENGINEERING_ACTIONS} selected={list("engineeringAction")} editable={editableFields} onChange={onFieldChange} />
-          <CheckGroup label="Further Implementation" field="furtherImplementation" options={FURTHER_IMPLEMENTATION} selected={list("furtherImplementation", list("furtherImpl"))} editable={editableFields} onChange={onFieldChange} />
+          <CheckGroup label="Engineering Action" field="engineeringAction" options={[...CITILINK_ENGINEERING_ACTIONS]} selected={engineeringAction} editable={Boolean(editableFields || engineeringActionEditable)} invalid={isInvalid("Engineering Action")} onChange={onFieldChange} single />
+          <CheckGroup label="Further Implementation" field="furtherImplementation" options={[...CITILINK_FURTHER_IMPLEMENTATION]} selected={furtherImplementation} editable={Boolean(editableFields || furtherImplementationEditable)} invalid={isInvalid("Further Implementation")} onChange={onFieldChange} />
         </section>
 
         <section className="px-5 py-4">
-          <CheckGroup label="Management Approval" field="managementApproval" options={MANAGEMENT_APPROVAL} selected={list("managementApproval", ["TEA"])} editable={editableFields} onChange={onFieldChange} />
+          <CheckGroup label="Management Approval" field="managementApproval" options={[...CITILINK_MANAGEMENT_APPROVAL]} selected={managementApproval.length ? managementApproval : ["TEA"]} editable={editableFields} invalid={isInvalid("Management Approval")} onChange={onFieldChange} />
         </section>
       </div>
     </div>

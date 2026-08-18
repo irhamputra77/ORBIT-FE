@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useSmoothNavigation } from "@/components/orbit/SmoothNavigationProvider";
 import {
   AlertCircle,
   CheckCircle2,
@@ -17,6 +17,10 @@ import {
 import { formatDateTime } from "@/lib/date-time";
 import { useApp } from "@/app/(orbit)/context/AppContext";
 import { usePresentationApprovalScenarios } from "@/lib/presentation/ees-approval-scenario";
+import {
+  useServiceBulletins,
+  type ServiceBulletinViewModel,
+} from "@/features/service-bulletins";
 import { mapPresentationScenarioToAssignment } from "../adapters/presentationAssignmentAdapter";
 import { useEesAssignments } from "../hooks/useEesAssignments";
 import type { EesAssignment } from "../types";
@@ -32,11 +36,50 @@ function formatStatus(value: string) {
 function statusStyle(status: string) {
   switch (status) {
     case "APPROVED": return { background: "#10B98118", color: "#059669" };
+    case "ACTIVE":
+    case "EXTRACTED":
+    case "GENERATED":
+      return { background: "#10B98118", color: "#059669" };
     case "REJECTED": return { background: "#EF444418", color: "#DC2626" };
-    case "RETURNED": return { background: "#F59E0B18", color: "#D97706" };
+    case "TERMINATED":
+      return { background: "#EF444418", color: "#DC2626" };
+    case "RETURNED":
+    case "REVIEW_REQUIRED":
+    case "SUPERSEDED":
+      return { background: "#F59E0B18", color: "#D97706" };
     case "PENDING": return { background: "#818CF818", color: "#6366F1" };
     default: return { background: "#6B728018", color: "#6B7280" };
   }
+}
+
+function WorkflowStatusBadges({
+  assignment,
+  serviceBulletin,
+}: {
+  assignment: EesAssignment;
+  serviceBulletin?: ServiceBulletinViewModel;
+}) {
+  const statuses = [
+    { label: "SB", value: serviceBulletin?.status },
+    { label: "OCR", value: serviceBulletin?.ocrStatus },
+    { label: "Draft", value: serviceBulletin?.draftStatus },
+    { label: "EES", value: assignment.reviewStatus },
+  ].filter((status): status is { label: string; value: string } => Boolean(status.value));
+
+  return (
+    <div className="flex min-w-[150px] flex-wrap gap-1">
+      {statuses.map((status) => (
+        <span
+          key={`${status.label}-${status.value}`}
+          className="rounded-full px-2 py-0.5 text-[9px] font-semibold"
+          style={statusStyle(status.value.toUpperCase())}
+          title={`${status.label} status: ${formatStatus(status.value)}`}
+        >
+          {status.label}: {formatStatus(status.value)}
+        </span>
+      ))}
+    </div>
+  );
 }
 
 function OutputBadges({ assignment }: { assignment: EesAssignment }) {
@@ -51,11 +94,20 @@ function OutputBadges({ assignment }: { assignment: EesAssignment }) {
 }
 
 export function MyAssignmentPage() {
-  const router = useRouter();
+  const router = useSmoothNavigation();
   const { dataSourceMode } = useApp();
   const [page, setPage] = useState(1);
   const scenarios = usePresentationApprovalScenarios();
   const apiQuery = useEesAssignments(page, 20, dataSourceMode === "backend");
+  const serviceBulletinQuery = useServiceBulletins(
+    {
+      page: 1,
+      limit: 100,
+      sortBy: "receivedAt",
+      sortOrder: "desc",
+    },
+    { fetchAll: true, enabled: dataSourceMode === "backend" },
+  );
   const dummyItems = useMemo(
     () => scenarios.map(mapPresentationScenarioToAssignment),
     [scenarios],
@@ -78,6 +130,12 @@ export function MyAssignmentPage() {
     counts[item.reviewStatus] = (counts[item.reviewStatus] || 0) + 1;
     return counts;
   }, {}), [query.items]);
+  const serviceBulletinById = useMemo(
+    () => new Map(
+      serviceBulletinQuery.items.map((bulletin) => [bulletin.id, bulletin]),
+    ),
+    [serviceBulletinQuery.items],
+  );
 
   const kpis = [
     { label: "Total EES", value: query.pagination.total, color: "#0242DB", icon: ClipboardList },
@@ -92,6 +150,10 @@ export function MyAssignmentPage() {
       `/ees/${encodeURIComponent(assignment.id)}?sourceSbId=${encodeURIComponent(assignment.sourceSbId)}`,
     );
   };
+  const refresh = () => {
+    query.retry();
+    if (dataSourceMode === "backend") serviceBulletinQuery.retry();
+  };
 
   return (
     <div className="mx-auto max-w-[1400px] p-6">
@@ -100,7 +162,7 @@ export function MyAssignmentPage() {
           <h1 className="mb-0.5 text-foreground">My Assignment</h1>
           <p className="text-sm text-muted-foreground">Engineering Evaluation Sheet documents from the ORBIT database.</p>
         </div>
-        <button type="button" onClick={query.retry} disabled={query.isLoading} className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground disabled:opacity-50">
+        <button type="button" onClick={refresh} disabled={query.isLoading} className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2 text-xs font-semibold text-foreground disabled:opacity-50">
           <RefreshCw size={13} className={query.isLoading ? "animate-spin" : ""} />Refresh
         </button>
       </div>
@@ -134,7 +196,7 @@ export function MyAssignmentPage() {
           <div className="overflow-x-auto">
             <table className="w-full min-w-[1120px] text-xs">
               <thead className="bg-muted">
-                <tr>{["EES Number", "Source Bulletin", "Operator", "Created By", "Assigned Reviewer", "Created At", "Output", "Status", "Action"].map((header) => <th key={header} className="whitespace-nowrap px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{header}</th>)}</tr>
+                <tr>{["EES Number", "Source Bulletin", "Operator", "Created By", "Assigned Reviewer", "Created At", "Output", "Workflow Status", "Action"].map((header) => <th key={header} className="whitespace-nowrap px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">{header}</th>)}</tr>
               </thead>
               <tbody>
                 {query.isLoading ? (
@@ -163,7 +225,12 @@ export function MyAssignmentPage() {
                     <td className="px-4 py-3"><div className="whitespace-nowrap font-semibold text-foreground">{row.assignedToName || "—"}</div><div className="mt-1 text-[9px] text-muted-foreground">{row.assignedToRole || "—"}</div></td>
                     <td className="whitespace-nowrap px-4 py-3 text-muted-foreground">{formatDateTime(row.createdAt)}</td>
                     <td className="px-4 py-3"><OutputBadges assignment={row} /></td>
-                    <td className="px-4 py-3"><span className="rounded-full px-2 py-0.5 text-[10px] font-semibold" style={statusStyle(row.reviewStatus)}>{formatStatus(row.reviewStatus)}</span></td>
+                    <td className="px-4 py-3">
+                      <WorkflowStatusBadges
+                        assignment={row}
+                        serviceBulletin={serviceBulletinById.get(row.sourceSbId)}
+                      />
+                    </td>
                     <td className="px-4 py-3">
                       <button
                         type="button"

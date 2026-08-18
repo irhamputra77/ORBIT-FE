@@ -3,6 +3,18 @@ import type {
   TemplateFieldDefinition,
   TemplateFieldOption,
 } from "../../../types";
+import {
+  CITILINK_ACCOMPLISHMENT_METHODS,
+  CITILINK_COMPONENT_TYPES,
+  CITILINK_CONSEQUENCES,
+  CITILINK_ENGINEERING_ACTIONS,
+  CITILINK_FURTHER_IMPLEMENTATION,
+  CITILINK_INSPECTION_TYPES,
+  CITILINK_MAINTENANCE_OPTIONS,
+  CITILINK_MANAGEMENT_APPROVAL,
+  CITILINK_REASON_OPTIONS,
+  CITILINK_UNIT_CONCERNS,
+} from "../../../services/citilink-fields";
 
 export type CitilinkCT3181Fields = {
   eesNumber: string;
@@ -42,54 +54,20 @@ export type CitilinkCT3181Fields = {
 const options = (values: readonly string[]): readonly TemplateFieldOption[] =>
   values.map(value => ({ label: value, value }));
 
-export const CITILINK_UNIT_CONCERN_OPTIONS = options([
-  "TEA-1",
-  "TEA-2",
-  "TEA-3",
-  "TEA-4",
-  "TEA-5",
-]);
+export const CITILINK_UNIT_CONCERN_OPTIONS = options(CITILINK_UNIT_CONCERNS);
 
-export const CITILINK_PART_CLASSIFICATION_OPTIONS = options([
-  "Component",
-  "Tool and Equipment",
-  "Part",
-]);
+export const CITILINK_PART_CLASSIFICATION_OPTIONS = options(CITILINK_COMPONENT_TYPES);
 
-export const CITILINK_REASON_OPTIONS = options([
-  "Affects A/C Operation",
-  "Pax or Crew Satisfaction",
-  "Improve Maintainability",
-  "To Meet Company Policy",
-  "Improve A/C Performance",
-  "Improve Reliability",
-  "Safety",
-  "To Comply With Government / Authority Regulatory Requirement",
-]);
+export const CITILINK_REASON_FIELD_OPTIONS = options(CITILINK_REASON_OPTIONS);
 
-export const CITILINK_MAINTENANCE_LEVEL_OPTIONS = options([
-  "To be performed prior to certain date",
-  "To be performed prior to certain hours/cycles",
-  "To be performed at next maint. Scheduled",
-  "To be performed at attrition basis",
-]);
+export const CITILINK_MAINTENANCE_LEVEL_OPTIONS = options(CITILINK_MAINTENANCE_OPTIONS);
 
-export const CITILINK_CONSEQUENCE_OPTIONS = options(["Affected", "Not Affected"]);
-export const CITILINK_ACCOMPLISHMENT_OPTIONS = options([
-  "Modification",
-  "Inspection",
-  "Other",
-]);
-export const CITILINK_INSPECTION_TYPE_OPTIONS = options(["One Time"]);
-export const CITILINK_ENGINEERING_ACTION_OPTIONS = options(["Yes", "No", "Hold/Postpone"]);
-export const CITILINK_FURTHER_IMPLEMENTATION_OPTIONS = options([
-  "Engineering Order",
-  "Manual Revision",
-  "Engineering Information",
-  "Other",
-  "M.S. Revision",
-]);
-export const CITILINK_MANAGEMENT_APPROVAL_OPTIONS = options(["TEA", "WQR", "DE"]);
+export const CITILINK_CONSEQUENCE_OPTIONS = options(CITILINK_CONSEQUENCES);
+export const CITILINK_ACCOMPLISHMENT_OPTIONS = options(CITILINK_ACCOMPLISHMENT_METHODS);
+export const CITILINK_INSPECTION_TYPE_OPTIONS = options(CITILINK_INSPECTION_TYPES);
+export const CITILINK_ENGINEERING_ACTION_OPTIONS = options(CITILINK_ENGINEERING_ACTIONS);
+export const CITILINK_FURTHER_IMPLEMENTATION_OPTIONS = options(CITILINK_FURTHER_IMPLEMENTATION);
+export const CITILINK_MANAGEMENT_APPROVAL_OPTIONS = options(CITILINK_MANAGEMENT_APPROVAL);
 
 export const citilinkCT3181Fields: readonly TemplateFieldDefinition<CitilinkCT3181Fields>[] = [
   { name: "eesNumber", label: "EES No.", type: "text", required: true },
@@ -109,7 +87,7 @@ export const citilinkCT3181Fields: readonly TemplateFieldDefinition<CitilinkCT31
   { name: "partNumber", label: "Part Number", type: "text" },
   { name: "partClassification", label: "Part Classification", type: "checkbox-group", options: CITILINK_PART_CLASSIFICATION_OPTIONS },
   { name: "note", label: "Note", type: "textarea" },
-  { name: "reasonOfEvaluation", label: "Reason of Evaluation", type: "checkbox-group", options: CITILINK_REASON_OPTIONS, required: true },
+  { name: "reasonOfEvaluation", label: "Reason of Evaluation", type: "checkbox-group", options: CITILINK_REASON_FIELD_OPTIONS, required: true },
   { name: "maintenanceLevel", label: "Maintenance Level", type: "checkbox-group", options: CITILINK_MAINTENANCE_LEVEL_OPTIONS },
   { name: "maintenanceDate", label: "Date", type: "text" },
   { name: "warranty", label: "Warranty", type: "text" },
@@ -145,7 +123,7 @@ export function createCitilinkCT3181Defaults(fleet = ""): CitilinkCT3181Fields {
     partClassification: [],
     note: "",
     effectivity: "",
-    reasonOfEvaluation: [],
+    reasonOfEvaluation: ["Improve Reliability"],
     maintenanceLevel: [],
     maintenanceDate: "",
     warranty: "",

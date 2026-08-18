@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { useSmoothNavigation } from "./SmoothNavigationProvider";
 import {
   Search,
   X,
@@ -58,15 +58,16 @@ const categories = [
 export function GlobalSearch() {
   const { globalSearchOpen, setGlobalSearchOpen } = useApp();
   const [query, setQuery] = useState('');
-  const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const router = useRouter();
+  const router = useSmoothNavigation();
 
   useEffect(() => {
-    if (globalSearchOpen) {
-      setTimeout(() => inputRef.current?.focus(), 50);
+    if (!globalSearchOpen) return;
+    const timer = window.setTimeout(() => {
+      inputRef.current?.focus();
       setQuery('');
-    }
+    }, 50);
+    return () => window.clearTimeout(timer);
   }, [globalSearchOpen]);
 
   if (!globalSearchOpen) return null;
@@ -165,7 +166,7 @@ export function GlobalSearch() {
 
           {query.length > 0 && results.length === 0 && (
             <div className="px-4 py-8 text-center text-muted-foreground text-sm">
-              No results for "{query}"
+              No results for &quot;{query}&quot;
             </div>
           )}
 

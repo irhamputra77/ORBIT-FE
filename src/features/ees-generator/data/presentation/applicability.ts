@@ -27,6 +27,9 @@ export function createPresentationApplicability(
         aircraftType: sb.fleet,
       },
       isApplicable,
+      dataSources: isApplicable
+        ? index % 2 === 0 ? ["IQ03", "EDS"] : ["SVR"]
+        : [],
       reason: isApplicable
         ? "ESN, engine type, and fleet configuration match the SB effectivity."
         : sb.status === "TERMINATED"

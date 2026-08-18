@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useSmoothNavigation } from "@/components/orbit/SmoothNavigationProvider";
 import {
   AlertTriangle,
   ArrowRight,
@@ -53,7 +53,7 @@ function MetricCard({
   metric: DashboardMetric;
   sourceLabel: "Live" | "Scenario";
 }) {
-  const router = useRouter();
+  const router = useSmoothNavigation();
   const Icon = metric.icon;
 
   return (
@@ -93,20 +93,6 @@ function MetricCard({
             <ArrowRight size={10} />
           </button>
         </div>
-        <div className="mt-3 flex items-center gap-2 border-t border-border pt-2.5">
-          <span
-            className="rounded-md px-1.5 py-0.5 text-[9px] font-semibold"
-            style={{
-              background: `${metric.color}12`,
-              color: metric.color,
-            }}
-          >
-            {sourceLabel}
-          </span>
-          <span className="truncate text-[9px] text-muted-foreground">
-            Current snapshot
-          </span>
-        </div>
       </div>
     </article>
   );
@@ -142,7 +128,7 @@ function formatMonth(month?: string) {
 }
 
 export default function DashboardPage() {
-  const router = useRouter();
+  const router = useSmoothNavigation();
   const { userRole, dataSourceMode } = useApp();
   const isManager = userRole === "manager";
   const useBackend = dataSourceMode === "backend";

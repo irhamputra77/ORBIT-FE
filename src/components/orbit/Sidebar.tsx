@@ -140,7 +140,7 @@ const navItems: NavItem[] = [
 
 const managerNavItems: NavItem[] = [
   { label: "Dashboard", icon: LayoutDashboard, path: "/dashboard" },
-  { label: "EES Approval", icon: CheckCircle2, path: "/manager-ees-review" },
+  { label: "Manager Workspace", icon: CheckCircle2, path: "/manager-ees-review" },
   { label: "Team Chat", icon: MessageCircle, path: "/team-chat", disabled: true },
 ];
 

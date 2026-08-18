@@ -30,6 +30,11 @@ export function useEESReviewHistory({
       engineType: scenario.engineType,
       operatorCode: scenario.operatorCode,
       operatorName: scenario.operatorName,
+      complianceCategory: scenario.category,
+      referredToName: scenario.assignedToName,
+      referredToRole: scenario.reviewerTarget === "MANAGER"
+        ? "Manager"
+        : "Second Engineer",
       eesCategory: `Category ${scenario.category}`,
       categorySystem: "ORBIT",
       reviewDate: scenario.reviewedAt ?? scenario.createdAt,

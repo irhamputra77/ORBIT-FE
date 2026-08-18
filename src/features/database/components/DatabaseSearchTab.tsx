@@ -1,18 +1,22 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useState } from "react";
 import {
   AlertCircle,
+  CalendarDays,
   ChevronLeft,
   ChevronRight,
   Download,
   ExternalLink,
+  Eye,
+  FileText,
   Loader2,
   Search,
 } from "lucide-react";
+import { useApp } from "@/app/(orbit)/context/AppContext";
 import {
   components,
-  edsResults,
   engineSerialNumbers,
   fleetTypes,
   iq03Results,
@@ -26,6 +30,8 @@ import {
 } from "../services/shopVisitReportApi";
 import type { DatabaseSource, ShopVisitReport } from "../types";
 import { ServiceBulletinList } from "./ServiceBulletinList";
+import { EngineDatabaseList } from "./EngineDatabaseList";
+import { EdsDatabaseList } from "./EdsDatabaseList";
 
 function DataTable({ headers, rows }: { headers: string[]; rows: React.ReactNode[][] }) {
   return (
@@ -86,135 +92,174 @@ function IQ03Result() {
   );
 }
 
-function formatObject(value?: Record<string, unknown> | null) {
-  if (!value || Object.keys(value).length === 0) return "—";
-  return Object.entries(value).map(([key, item]) => `${key}: ${String(item)}`).join(", ");
-}
-
-function SVRResult({
-  report,
+function SVRList({
   reports,
-  onSelect,
+  total,
+  isDummyMode,
 }: {
-  report: ShopVisitReport;
   reports: ShopVisitReport[];
-  onSelect: (id: string) => void;
+  total: number;
+  isDummyMode: boolean;
 }) {
-  const configuration = report.configurationReport ?? [];
-  const llpStatus = report.llpStatus ?? [];
-  const adStatus = report.adStatus ?? [];
-  const complianceRecords = report.complianceRecords ?? [];
-  const hasPdf = Boolean(report.storedFileName && report.storedFileName !== "PENDING");
-
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <ResultHeader>SVR Result — ESN {report.engineSerialNumber}</ResultHeader>
-        {reports.length > 1 && (
-          <select
-            value={report.id}
-            onChange={(event) => onSelect(event.target.value)}
-            className="ml-auto rounded-lg border border-border bg-card px-3 py-2 text-xs outline-none"
-            aria-label="Select Shop Visit Report"
-          >
-            {reports.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.engineSerialNumber} · {item.shopInDate || item.reportDate ? formatDateTime(item.shopInDate || item.reportDate) : item.id}
-              </option>
-            ))}
-          </select>
-        )}
-      </div>
-      <IdentityGrid values={[
-        ["SVR ID", report.id], ["Engine Serial Number", report.engineSerialNumber],
-        ["Engine Type", report.engineType || report.engine?.model], ["Shop In Date", formatDateTime(report.shopInDate)],
-        ["Shop Out Date", formatDateTime(report.shopOutDate)], ["Report Date", formatDateTime(report.reportDate)],
-        ["Reason for Shop Visit", report.reasonForShopVisit], ["TSN / CSN", [report.tsn, report.csn].filter(Boolean).join(" / ")],
-        ["Release Status", report.authorizedReleaseStatus],
-      ]} />
-      {hasPdf ? (
-        <div className="flex flex-wrap gap-2">
-          <a href={getShopVisitReportPreviewUrl(report.id)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-lg border border-blue-600 px-3 py-2 text-xs font-semibold text-blue-600">
-            <ExternalLink size={13} /> Preview PDF
-          </a>
-          <a href={getShopVisitReportDownloadUrl(report.id)} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white">
-            <Download size={13} /> Download PDF
-          </a>
+    <section className="overflow-hidden rounded-2xl border border-border bg-card">
+      <div className="flex flex-col gap-3 border-b border-border px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-start gap-3">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-600/10 text-blue-700">
+            <FileText size={17} />
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold text-foreground">
+              Shop Visit Reports
+            </h2>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Seluruh laporan SVR yang tersedia pada sumber data aktif.
+            </p>
+          </div>
         </div>
-      ) : (
-        <p className="rounded-lg border border-amber-500/20 bg-amber-500/5 px-3 py-2 text-xs text-amber-700">SVR ini berasal dari webhook atau belum memiliki file PDF.</p>
-      )}
-      <section className="space-y-2">
-        <h3 className="text-xs font-semibold text-foreground">Configuration Report</h3>
-        {configuration.length > 0 ? (
-          <DataTable
-            headers={["Module", "Part Name", "P/N", "Serial", "In/Out", "Qty", "Work Accomplished"]}
-            rows={configuration.map((item) => [item.module || "—", item.partName || "—", item.partNumber || "—", item.serial || "—", item.inOut || "—", item.qty ?? "—", item.workAccompl || "—"])}
-          />
-        ) : <p className="text-xs text-muted-foreground">Configuration report tidak tersedia.</p>}
-      </section>
-      <section className="space-y-2">
-        <h3 className="text-xs font-semibold text-foreground">Life Limited Part Status</h3>
-        {llpStatus.length > 0 ? (
-          <DataTable
-            headers={["No.", "Description", "P/N", "Serial", "Total Hour", "Total Cycle", "Remaining Cycles", "Remark"]}
-            rows={llpStatus.map((item) => [item.no ?? "—", item.description || "—", item.partNumber || "—", item.serialNumber || "—", item.totalHour || "—", item.totalCycle || "—", formatObject(item.remainingCycles), item.remark || "—"])}
-          />
-        ) : <p className="text-xs text-muted-foreground">LLP status tidak tersedia.</p>}
-      </section>
-      <section className="space-y-2">
-        <h3 className="text-xs font-semibold text-foreground">Airworthiness Directive Status</h3>
-        {adStatus.length > 0 ? (
-          <DataTable
-            headers={["AD Number", "Compliance Date", "Method of Compliance", "Reference SB", "Recurrent Inspection", "Remarks"]}
-            rows={adStatus.map((item) => [
-              item.adNumber || "—",
-              formatDateTime(item.notificationDateOfCompliance),
-              item.methodOfCompliance || "—",
-              item.referenceSb || "—",
-              item.recurrInsp || "—",
-              item.remarks || "—",
-            ])}
-          />
-        ) : <p className="text-xs text-muted-foreground">AD status tidak tersedia.</p>}
-      </section>
-      <section className="space-y-2">
-        <h3 className="text-xs font-semibold text-foreground">Service Bulletin Compliance</h3>
-        {complianceRecords.length > 0 ? (
-          <DataTable
-            headers={["Reference", "Title", "Status", "Compliance Date", "Remarks"]}
-            rows={complianceRecords.map((item) => [
-              item.sb?.sbNumber || "—",
-              item.sb?.title || "—",
-              item.status || "—",
-              formatDateTime(item.complianceDate),
-              item.remarks || "—",
-            ])}
-          />
-        ) : <p className="text-xs text-muted-foreground">Service Bulletin compliance tidak tersedia.</p>}
-      </section>
-    </div>
-  );
-}
+        <div className="flex items-center gap-2">
+          <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold ${
+            isDummyMode
+              ? "border-violet-200 bg-violet-50 text-violet-700"
+              : "border-emerald-200 bg-emerald-50 text-emerald-700"
+          }`}>
+            {isDummyMode ? "Dummy data" : "Backend data"}
+          </span>
+          <span className="rounded-full border border-border bg-muted px-2.5 py-1 text-[10px] font-semibold text-muted-foreground">
+            {total.toLocaleString("id-ID")} record
+          </span>
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[1120px] text-left">
+          <thead className="bg-muted/70">
+            <tr className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+              <th className="px-5 py-3">Engine</th>
+              <th className="px-4 py-3">SVR Document</th>
+              <th className="px-4 py-3">Shop Visit Period</th>
+              <th className="px-4 py-3">Report Date</th>
+              <th className="px-4 py-3">Recorded Work</th>
+              <th className="px-4 py-3">Release</th>
+              <th className="px-5 py-3 text-right">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {reports.map(report => {
+              const isDummy = report.isDummy === true;
+              const hasPdf = Boolean(
+                !isDummy
+                && report.storedFileName
+                && report.storedFileName.toUpperCase() !== "PENDING",
+              );
+              const complianceCount = report.complianceRecords?.length ?? 0;
+              const configurationCount = report.configurationReport?.length ?? 0;
 
-function EDSResult() {
-  return (
-    <div className="space-y-4">
-      <ResultHeader>EDS Result — ESN {edsResults.esn}</ResultHeader>
-      <IdentityGrid values={[["Engine Serial Number", edsResults.esn], ["Build Standard", edsResults.engineBuildStandard], ["Fleet", edsResults.fleet]]} />
-      <DataTable headers={["Configuration Item", "Installed", "Part Number"]} rows={edsResults.configuration.map((item) => [item.item, item.installed ? "Installed" : "Not installed", item.partNo])} />
-      <DataTable headers={["Service Bulletin", "Status", "Compliance Date"]} rows={edsResults.sbStatus.map((item) => [item.sb, item.status, formatDateTime(item.date)])} />
-      <DataTable headers={["Module", "Cycles Accumulated", "Life Limit", "Remaining"]} rows={edsResults.remainingLife.map((item) => [item.module, `${item.cycles.toLocaleString()} FC`, `${item.limit.toLocaleString()} FC`, `${item.remaining.toLocaleString()} FC`])} />
-    </div>
+              return (
+                <tr
+                  key={report.id}
+                  className="border-t border-border align-middle transition-colors hover:bg-muted/35"
+                >
+                  <td className="px-5 py-4">
+                    <p className="font-semibold text-foreground">
+                      ESN {report.engineSerialNumber}
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {report.engineType || report.engine?.model || "Engine type unavailable"}
+                    </p>
+                  </td>
+                  <td className="px-4 py-4">
+                    <p className="max-w-[220px] truncate text-xs font-semibold text-foreground" title={report.id}>
+                      {report.id}
+                    </p>
+                    <p className="mt-1 max-w-[220px] truncate text-[10px] text-muted-foreground" title={report.originalFileName || undefined}>
+                      {report.originalFileName || "File name unavailable"}
+                    </p>
+                  </td>
+                  <td className="px-4 py-4">
+                    <div className="flex items-start gap-2 text-xs">
+                      <CalendarDays className="mt-0.5 shrink-0 text-blue-600" size={13} />
+                      <div>
+                        <p className="font-medium text-foreground">
+                          {formatDateTime(report.shopInDate)}
+                        </p>
+                        <p className="mt-0.5 text-[10px] text-muted-foreground">
+                          to {formatDateTime(report.shopOutDate)}
+                        </p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-4 text-xs font-medium text-foreground">
+                    {formatDateTime(report.reportDate)}
+                  </td>
+                  <td className="px-4 py-4">
+                    <div className="flex flex-wrap gap-1.5">
+                      <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
+                        {complianceCount} compliance
+                      </span>
+                      <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+                        {configurationCount} config
+                      </span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-4">
+                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
+                      report.authorizedReleaseStatus?.toUpperCase() === "RELEASED"
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                        : "border-slate-200 bg-slate-50 text-slate-600"
+                    }`}>
+                      {report.authorizedReleaseStatus || "Not available"}
+                    </span>
+                  </td>
+                  <td className="px-5 py-4">
+                    <div className="flex justify-end gap-2">
+                      <Link
+                        href={`/database/shop-visit-reports/${encodeURIComponent(report.id)}`}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-blue-700 px-3 py-2 text-[11px] font-semibold text-white hover:bg-blue-800"
+                      >
+                        <Eye size={12} />
+                        Detail
+                      </Link>
+                      {hasPdf && (
+                        <>
+                          <a
+                            href={getShopVisitReportPreviewUrl(report.id)}
+                            target="_blank"
+                            rel="noreferrer"
+                            aria-label={`Preview PDF ${report.id}`}
+                            title="Preview PDF"
+                            className="inline-flex items-center justify-center rounded-lg border border-blue-200 bg-blue-50 p-2 text-blue-700 hover:bg-blue-100"
+                          >
+                            <ExternalLink size={13} />
+                          </a>
+                          <a
+                            href={getShopVisitReportDownloadUrl(report.id)}
+                            aria-label={`Download PDF ${report.id}`}
+                            title="Download PDF"
+                            className="inline-flex items-center justify-center rounded-lg border border-border p-2 text-foreground hover:bg-muted"
+                          >
+                            <Download size={13} />
+                          </a>
+                        </>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 
 export function DatabaseSearchTab() {
+  const { dataSourceMode } = useApp();
   const [fleet, setFleet] = useState("");
   const [query, setQuery] = useState("");
   const [source, setSource] = useState<DatabaseSource>("IQ03");
   const [result, setResult] = useState<DatabaseSource | null>(null);
-  const svr = useShopVisitReports();
+  const svr = useShopVisitReports(dataSourceMode === "dummy");
   const querySuggestions = useMemo(() => [
     ...engineSerialNumbers,
     ...components.flatMap((item) => [item.partNo, item.name]),
@@ -223,8 +268,24 @@ export function DatabaseSearchTab() {
 
   function changeSource(nextSource: DatabaseSource) {
     setSource(nextSource);
-    setResult(nextSource === "SB" ? "SB" : null);
     svr.reset();
+    if (nextSource === "ENGINE") {
+      setQuery("");
+      setResult("ENGINE");
+      return;
+    }
+    if (nextSource === "EDS") {
+      setQuery("");
+      setResult("EDS");
+      return;
+    }
+    if (nextSource === "SVR") {
+      setQuery("");
+      setResult("SVR");
+      void svr.search();
+      return;
+    }
+    setResult(nextSource === "SB" ? "SB" : null);
   }
 
   function handleSearch() {
@@ -248,7 +309,7 @@ export function DatabaseSearchTab() {
         <div>
           <div className="mb-2 text-xs font-semibold text-foreground">Source</div>
           <div className="flex gap-2">
-            {(["IQ03", "SVR", "EDS", "SB"] as const).map((item) => <button key={item} type="button" onClick={() => changeSource(item)} className={`flex-1 rounded-xl border px-3 py-2.5 text-xs font-semibold transition-colors ${source === item ? "border-blue-600 bg-blue-600 text-white" : "border-border bg-muted text-muted-foreground"}`}>{item}</button>)}
+            {(["ENGINE", "IQ03", "SVR", "EDS", "SB"] as const).map((item) => <button key={item} type="button" onClick={() => changeSource(item)} className={`flex-1 rounded-xl border px-2 py-2.5 text-[11px] font-semibold transition-colors ${source === item ? "border-blue-600 bg-blue-600 text-white" : "border-border bg-muted text-muted-foreground"}`}>{item}</button>)}
           </div>
         </div>
       </div>
@@ -256,9 +317,16 @@ export function DatabaseSearchTab() {
         {source === "SVR" && svr.isLoading ? <Loader2 className="animate-spin" size={14} /> : <Search size={14} />} Search
       </button>
       {result === "IQ03" && <IQ03Result />}
+      {result === "ENGINE" && <EngineDatabaseList />}
       {result === "SVR" && svr.error && <div className="flex items-start gap-2 rounded-xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-600"><AlertCircle className="mt-0.5 shrink-0" size={16} />{svr.error}</div>}
-      {result === "SVR" && svr.hasSearched && !svr.isLoading && !svr.error && !svr.selected && <div className="rounded-xl border border-border bg-muted p-5 text-sm text-muted-foreground">Tidak ada data SVR yang cocok dengan ESN tersebut.</div>}
-      {result === "SVR" && svr.selected && <SVRResult report={svr.selected} reports={svr.items} onSelect={(id) => void svr.select(id)} />}
+      {result === "SVR" && svr.hasSearched && !svr.isLoading && !svr.error && svr.items.length === 0 && <div className="rounded-xl border border-border bg-muted p-5 text-sm text-muted-foreground">Tidak ada data SVR yang cocok dengan ESN tersebut.</div>}
+      {result === "SVR" && !svr.isLoading && svr.items.length > 0 && (
+        <SVRList
+          reports={svr.items}
+          total={svr.meta.total}
+          isDummyMode={dataSourceMode === "dummy"}
+        />
+      )}
       {result === "SVR" && svr.hasSearched && !svr.error && svr.meta.totalPages > 1 && (
         <div className="mt-5 flex items-center justify-between rounded-xl border border-border bg-card px-4 py-3">
           <span className="text-xs text-muted-foreground">
@@ -284,7 +352,7 @@ export function DatabaseSearchTab() {
           </div>
         </div>
       )}
-      {result === "EDS" && <EDSResult />}
+      {result === "EDS" && <EdsDatabaseList />}
       {result === "SB" && <ServiceBulletinList key={`${query}-${fleet}`} query={query} fleet={fleet} />}
     </div>
   );

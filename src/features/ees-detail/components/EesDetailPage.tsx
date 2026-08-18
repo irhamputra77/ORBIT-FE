@@ -13,13 +13,13 @@ import {
   History,
   Link2,
   Paperclip,
+  PencilLine,
   Plane,
   RefreshCw,
   ShieldCheck,
   UserRound,
   XCircle,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { Skeleton } from "@/components/ui/skeleton";
@@ -44,6 +44,7 @@ import {
   type ServiceBulletinViewModel,
 } from "@/features/service-bulletins";
 import { formatDateTime } from "@/lib/date-time";
+import { useSmoothNavigation } from "@/components/orbit/SmoothNavigationProvider";
 import { usePresentationApprovalScenarios } from "@/lib/presentation/ees-approval-scenario";
 
 import { mapPresentationScenarioToEesDetail } from "../adapters/presentationEesDetailAdapter";
@@ -116,6 +117,43 @@ function latestActivityDate(
   }, document.createdAt);
 }
 
+/**
+ * Backend has no persisted "selected template" field. Its approval workflow
+ * determines the output from the source-SB operator: QG is Citilink, every
+ * other operator is Garuda. PDF storage paths are only a fallback for older
+ * responses that omit the nested operator object.
+ */
+function resolveEesOperator(
+  document: ServiceBulletinEesDocument,
+  serviceBulletin: ServiceBulletinViewModel,
+): "garuda" | "citilink" {
+  const rawDocument = document as unknown as Record<string, unknown>;
+  const sourceSb = rawDocument.sourceSb;
+  const sourceSbOperator = typeof sourceSb === "object" && sourceSb !== null
+    ? (sourceSb as { operator?: { code?: unknown } | null }).operator
+    : null;
+  const operatorCode = [
+    document.serviceBulletin?.operator?.code,
+    sourceSbOperator?.code,
+    serviceBulletin.operatorCode,
+  ].find((value): value is string => typeof value === "string" && value.trim().length > 0)
+    ?.trim()
+    .toUpperCase();
+
+  if (operatorCode) {
+    return operatorCode === "QG" ? "citilink" : "garuda";
+  }
+
+  const hasCitilinkPdf = Boolean(rawDocument.storedCitilinkPdfPath);
+  const hasGarudaPdf = Boolean(rawDocument.storedGarudaPdfPath);
+  if (hasCitilinkPdf && !hasGarudaPdf) return "citilink";
+  if (hasGarudaPdf && !hasCitilinkPdf) return "garuda";
+
+  // The backend defaults non-QG operators to Garuda. If the response omits
+  // operator and contains no unambiguous PDF path, keep that same default.
+  return "garuda";
+}
+
 function InformationRow({
   label,
   value,
@@ -130,6 +168,34 @@ function InformationRow({
         {value || "—"}
       </dd>
     </div>
+  );
+}
+
+function valueEntries(value: unknown): string[] {
+  const values = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(/[,;\r\n]+/)
+      : [];
+
+  return values.map(item => String(item).trim()).filter(Boolean);
+}
+
+function ValueChips({ value }: { value: unknown }) {
+  const entries = valueEntries(value);
+  if (!entries.length) return <span className="text-muted-foreground">—</span>;
+
+  return (
+    <span className="flex flex-wrap justify-end gap-1">
+      {entries.map((entry, index) => (
+        <span
+          key={`${entry}-${index}`}
+          className="rounded-md border border-blue-200 bg-blue-50 px-1.5 py-0.5 font-mono text-[9px] font-semibold text-blue-800"
+        >
+          {entry}
+        </span>
+      ))}
+    </span>
   );
 }
 
@@ -233,7 +299,7 @@ export function EesDetailPage({
   eesId: string;
   sourceSbId: string;
 }) {
-  const router = useRouter();
+  const router = useSmoothNavigation();
   const { dataSourceMode } = useApp();
   const presentationScenarios = usePresentationApprovalScenarios();
   const presentationScenario = dataSourceMode === "dummy"
@@ -379,8 +445,7 @@ export function EesDetailPage({
   const approvalLabel = approvalStatusLabel(document.reviewStatus, approval);
   const lastUpdated = latestActivityDate(document, reviewHistory);
   const aircraftType = document.aircraftType || serviceBulletin.aircraftType;
-  const isCitilink = /A320|ATR/i.test(aircraftType || "");
-  const eesOperator = isCitilink ? "citilink" : "garuda";
+  const eesOperator = resolveEesOperator(document, serviceBulletin);
   const viewUrl = presentationScenario
     ? null
     : getEesPdfUrl(sourceSbId, eesOperator, "view");
@@ -457,7 +522,7 @@ export function EesDetailPage({
         </div>
 
         <dl className="mt-5 grid gap-x-6 gap-y-3 border-t border-border pt-4 sm:grid-cols-2 xl:grid-cols-6">
-          {[
+      {[
             ["Operator", serviceBulletin.operatorId || "—"],
             ["Fleet", aircraftType || "—"],
             ["Assigned engineer", presentationScenario?.assignedToName || formatStatus(approval?.assignedRole)],
@@ -481,6 +546,30 @@ export function EesDetailPage({
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-800">
           EES telah diregenerate. Menampilkan dokumen terbaru untuk Service Bulletin ini.
         </div>
+      )}
+
+      {["REJECTED", "RETURNED"].includes(
+        (approval?.status || document.reviewStatus || "").toUpperCase(),
+      ) && document.permissions?.canResubmit !== false && (
+        <section className="rounded-2xl border border-amber-400 bg-amber-50 p-4 shadow-sm sm:p-5">
+          <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+            <div>
+              <h2 className="flex items-center gap-2 text-sm font-bold text-amber-950">
+                <PencilLine size={16} /> Revision required
+              </h2>
+              <p className="mt-1 text-xs leading-5 text-amber-900">
+                Buka halaman revisi untuk melihat catatan reviewer, mengubah seluruh form EES, dan melihat source SB PDF.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => router.push(`/ees/${encodeURIComponent(document.id)}/revision?sourceSbId=${encodeURIComponent(sourceSbId)}`)}
+              className="shrink-0 rounded-xl bg-amber-800 px-4 py-2.5 text-xs font-bold text-white hover:bg-amber-900"
+            >
+              Revise EES
+            </button>
+          </div>
+        </section>
       )}
 
       <section className="rounded-2xl border border-border bg-card px-4 py-4 shadow-sm sm:px-6">
@@ -530,12 +619,9 @@ export function EesDetailPage({
               <InformationRow label="Task type" value={document.taskType} />
               <InformationRow label="Aircraft" value={aircraftType} />
               <InformationRow label="Effected type" value={document.effectedType} />
-              <InformationRow
-                label="Effected model"
-                value={Array.isArray(document.effectedModel)
-                  ? document.effectedModel.join(", ")
-                  : document.effectedModel}
-              />
+              <InformationRow label="Affected model" value={<ValueChips value={document.effectedModel} />} />
+              <InformationRow label="Engine serial number" value={<ValueChips value={document.esn} />} />
+              <InformationRow label="Part number" value={<ValueChips value={document.partNumber} />} />
             </dl>
           </PanelSection>
 
@@ -600,13 +686,6 @@ export function EesDetailPage({
             )}
           </PanelSection>
 
-          <PanelSection icon={<Link2 size={15} className="text-amber-600" />} title="Related Documents">
-            <dl>
-              <InformationRow label="Service Bulletin" value={serviceBulletin.bulletinNumber} />
-              <InformationRow label="References" value={`${references.length} document(s)`} />
-              <InformationRow label="EES PDF" value={pdfProcessing ? "Processing" : "Available from export"} />
-            </dl>
-          </PanelSection>
         </aside>
       </div>
 
@@ -619,6 +698,9 @@ export function EesDetailPage({
               </TabsTrigger>
               <TabsTrigger value="history">
                 <History size={13} /> Review History
+              </TabsTrigger>
+              <TabsTrigger value="related-documents">
+                <Link2 size={13} /> Related Documents
               </TabsTrigger>
               <TabsTrigger value="attachments">
                 <Paperclip size={13} /> Attachments
@@ -684,6 +766,87 @@ export function EesDetailPage({
               fallbackStatus={document.reviewStatus}
               fallbackDate={document.createdAt}
             />
+          </TabsContent>
+
+          <TabsContent value="related-documents" className="pt-3">
+            <div className="grid gap-3 lg:grid-cols-3">
+              <button
+                type="button"
+                disabled={Boolean(presentationScenario)}
+                onClick={() => router.push(`/database/service-bulletins/${encodeURIComponent(sourceSbId)}`)}
+                className="group flex min-h-28 items-start justify-between gap-4 rounded-xl border border-border bg-muted/30 p-4 text-left transition-colors hover:bg-muted disabled:cursor-default disabled:hover:bg-muted/30"
+              >
+                <div className="min-w-0">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Service Bulletin
+                  </p>
+                  <p className="mt-2 break-words text-sm font-semibold text-foreground">
+                    {serviceBulletin.bulletinNumber || "—"}
+                  </p>
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    Source document
+                  </p>
+                </div>
+                <ExternalLink
+                  size={15}
+                  className="mt-0.5 shrink-0 text-blue-700 transition-transform group-hover:-translate-y-0.5 group-hover:translate-x-0.5"
+                />
+              </button>
+
+              <div className="min-h-28 rounded-xl border border-border bg-muted/30 p-4">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  References
+                </p>
+                <p className="mt-2 text-sm font-semibold text-foreground">
+                  {references.length} document(s)
+                </p>
+                <p className="mt-1 text-[10px] text-muted-foreground">
+                  Referenced by this EES
+                </p>
+              </div>
+
+              <div className="min-h-28 rounded-xl border border-border bg-muted/30 p-4">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  EES PDF
+                </p>
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">
+                      {pdfProcessing ? "Processing" : "Available from export"}
+                    </p>
+                    <p className="mt-1 text-[10px] text-muted-foreground">
+                      Generated EES document
+                    </p>
+                  </div>
+                  {!pdfProcessing && downloadUrl && (
+                    <a
+                      href={downloadUrl}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-blue-700 px-3 py-2 text-[10px] font-semibold text-white hover:bg-blue-800"
+                    >
+                      <Download size={12} /> Download
+                    </a>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {references.length > 0 && (
+              <div className="mt-3 rounded-xl border border-border bg-card p-4">
+                <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  Reference list
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {references.map((reference, index) => (
+                    <span
+                      key={`${reference}-${index}`}
+                      className="rounded-lg border border-border bg-muted/40 px-3 py-2 text-[10px] text-foreground"
+                    >
+                      {reference}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
           </TabsContent>
 
           <TabsContent value="attachments" className="pt-3">

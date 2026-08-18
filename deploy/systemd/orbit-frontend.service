@@ -1,0 +1,22 @@
+[Unit]
+Description=ORBIT Next.js frontend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=irham
+Group=irham
+WorkingDirectory=/home/irham/orbit/frontend/ORBIT-FE
+Environment=NODE_ENV=production
+EnvironmentFile=/home/irham/orbit/frontend/ORBIT-FE/.env
+ExecStart=/usr/bin/npm run start
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=30s
+KillSignal=SIGTERM
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

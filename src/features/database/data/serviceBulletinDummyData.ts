@@ -57,6 +57,7 @@ const base: Omit<
   | "evaluations"
   | "extractedItems"
 > = {
+  complianceCategory: null,
   warranty: "",
   rep: null,
   compliancePeriod: null,

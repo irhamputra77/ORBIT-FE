@@ -5,6 +5,8 @@ import type {
   ShopVisitLlpItem,
   ShopVisitReport,
   ShopVisitReportListResponse,
+  ShopVisitSbStatus,
+  ShopVisitAccessoryItem,
 } from "../types";
 
 type UnknownRecord = Record<string, unknown>;
@@ -50,11 +52,6 @@ function parseRecord(value: unknown): UnknownRecord {
   }
 }
 
-function parseNullableRecord(value: unknown) {
-  const parsed = parseRecord(value);
-  return Object.keys(parsed).length ? parsed : null;
-}
-
 function normalizeBackendDate(value: unknown) {
   const text = nullableText(value);
   if (!text) return null;
@@ -94,10 +91,26 @@ function mapLlpItem(value: unknown): ShopVisitLlpItem | null {
     serialNumber: nullableText(value.serialNumber),
     totalHour: nullableText(value.totalHour),
     totalCycle: nullableText(value.totalCycle),
-    totalCyclesCategory: parseNullableRecord(value.totalCyclesCategory),
-    lifeLimitCycles: parseNullableRecord(value.lifeLimitCycles),
-    remainingCycles: parseNullableRecord(value.remainingCycles),
+    totalCyclesCategory: value.totalCyclesCategory ?? null,
+    lifeLimitCycles: value.lifeLimitCycles ?? null,
+    remainingCycles: value.remainingCycles ?? null,
     remark: nullableText(value.remark),
+  };
+}
+
+function mapSbStatus(value: unknown): ShopVisitSbStatus | null {
+  if (!isRecord(value)) return null;
+  return {
+    id: nullableText(value.id) ?? undefined,
+    sbNumber: nullableText(value.sbNumber),
+    notificationDateOfCompliance: normalizeBackendDate(
+      value.notificationDateOfCompliance,
+    ),
+    description: nullableText(value.description),
+    catType: nullableText(value.catType),
+    moduleApplicability: nullableText(value.moduleApplicability),
+    methodOfCompliance: nullableText(value.methodOfCompliance),
+    remarks: nullableText(value.remarks),
   };
 }
 
@@ -119,17 +132,56 @@ function mapAdStatus(value: unknown): ShopVisitAdStatus | null {
 function mapComplianceRecord(value: unknown): ShopVisitComplianceRecord | null {
   if (!isRecord(value)) return null;
   const sb = isRecord(value.sb) ? value.sb : {};
+  const ad = isRecord(value.ad) ? value.ad : {};
   return {
     id: nullableText(value.id) ?? undefined,
+    engineId: nullableText(value.engineId),
+    sbId: nullableText(value.sbId),
+    adId: nullableText(value.adId),
     status: nullableText(value.status),
     complianceDate: normalizeBackendDate(value.complianceDate),
     remarks: nullableText(value.remarks),
+    sourceDate: normalizeBackendDate(value.sourceDate),
+    resolutionReason: nullableText(value.resolutionReason),
     sb: Object.keys(sb).length
       ? {
+          id: nullableText(sb.id),
           sbNumber: nullableText(sb.sbNumber),
+          revision: nullableText(sb.revision),
           title: nullableText(sb.title),
+          status: nullableText(sb.status),
+          aircraftType: nullableText(sb.aircraftType),
+          complianceCategory:
+            typeof sb.complianceCategory === "number"
+              ? sb.complianceCategory
+              : null,
         }
       : null,
+    ad: Object.keys(ad).length
+      ? {
+          id: nullableText(ad.id),
+          adNumber: nullableText(ad.adNumber),
+          title: nullableText(ad.title),
+        }
+      : null,
+  };
+}
+
+function mapAccessoryItem(value: unknown): ShopVisitAccessoryItem | null {
+  if (!isRecord(value)) return null;
+  return {
+    ...value,
+    id: nullableText(value.id) ?? undefined,
+    description:
+      nullableText(value.description)
+      ?? nullableText(value.partName)
+      ?? nullableText(value.name),
+    partNumber: nullableText(value.partNumber),
+    serialNumber:
+      nullableText(value.serialNumber)
+      ?? nullableText(value.serial),
+    position: nullableText(value.position),
+    status: nullableText(value.status),
   };
 }
 
@@ -143,6 +195,7 @@ export function mapShopVisitReport(value: unknown): ShopVisitReport | null {
   return {
     ...value,
     id,
+    engineId: nullableText(value.engineId),
     engineSerialNumber:
       nullableText(value.engineSerialNumber)
       ?? nullableText(rawPayload.engine_serial_number)
@@ -167,13 +220,21 @@ export function mapShopVisitReport(value: unknown): ShopVisitReport | null {
       ?? nullableText(rawPayload.authorized_release_status),
     originalFileName: nullableText(value.originalFileName),
     storedFileName: nullableText(value.storedFileName),
+    createdAt: nullableText(value.createdAt),
+    updatedAt: nullableText(value.updatedAt),
     rawPayload,
     engine: Object.keys(engine).length
       ? {
           ...engine,
           id: nullableText(engine.id) ?? undefined,
           esn: nullableText(engine.esn),
+          msn: nullableText(engine.msn),
           model: nullableText(engine.model),
+          position: nullableText(engine.position),
+          aircraftId: nullableText(engine.aircraftId),
+          active: typeof engine.active === "boolean" ? engine.active : null,
+          createdAt: nullableText(engine.createdAt),
+          updatedAt: nullableText(engine.updatedAt),
         }
       : null,
     configurationReport: (Array.isArray(value.configurationReport) ? value.configurationReport : [])
@@ -182,9 +243,15 @@ export function mapShopVisitReport(value: unknown): ShopVisitReport | null {
     llpStatus: (Array.isArray(value.llpStatus) ? value.llpStatus : [])
       .map(mapLlpItem)
       .filter((item): item is ShopVisitLlpItem => item !== null),
+    sbStatus: (Array.isArray(value.sbStatus) ? value.sbStatus : [])
+      .map(mapSbStatus)
+      .filter((item): item is ShopVisitSbStatus => item !== null),
     adStatus: (Array.isArray(value.adStatus) ? value.adStatus : [])
       .map(mapAdStatus)
       .filter((item): item is ShopVisitAdStatus => item !== null),
+    accessoriesList: (Array.isArray(value.accessoriesList) ? value.accessoriesList : [])
+      .map(mapAccessoryItem)
+      .filter((item): item is ShopVisitAccessoryItem => item !== null),
     complianceRecords: (Array.isArray(value.complianceRecords) ? value.complianceRecords : [])
       .map(mapComplianceRecord)
       .filter((item): item is ShopVisitComplianceRecord => item !== null),

@@ -45,9 +45,15 @@ export function backendErrorResponse(error: unknown) {
   }
 
   if (status === 400) {
-    const payload = error.response?.data as { error?: unknown; message?: unknown } | undefined;
+    const payload = error.response?.data as {
+      error?: unknown;
+      message?: unknown;
+      details?: unknown;
+    } | undefined;
     const backendMessage =
-      typeof payload?.error === "string"
+      typeof payload?.details === "string"
+        ? payload.details
+        : typeof payload?.error === "string"
         ? payload.error
         : typeof payload?.message === "string"
           ? payload.message
@@ -60,6 +66,23 @@ export function backendErrorResponse(error: unknown) {
 
   if (status === 413) {
     return apiJson({ message: "Ukuran file PDF melebihi batas 100 MB." }, { status: 413 });
+  }
+
+  if (status === 409) {
+    const payload = error.response?.data as {
+      error?: unknown;
+      message?: unknown;
+      details?: unknown;
+    } | undefined;
+    const backendMessage =
+      typeof payload?.details === "string"
+        ? payload.details
+        : typeof payload?.message === "string"
+          ? payload.message
+          : typeof payload?.error === "string"
+            ? payload.error
+            : "Data sudah berubah. Muat ulang halaman dan coba lagi.";
+    return apiJson({ message: backendMessage }, { status: 409 });
   }
 
   if (error.code === "ECONNABORTED") {

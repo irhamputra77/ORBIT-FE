@@ -21,6 +21,9 @@ export interface EESReviewRecord {
   engineType: string;
   operatorCode?: string;
   operatorName?: string;
+  complianceCategory: number | null;
+  referredToName: string | null;
+  referredToRole: "Manager" | "Second Engineer" | null;
   eesCategory: string;
   categorySystem: string;
   geCategory?: string;

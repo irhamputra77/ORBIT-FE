@@ -9,6 +9,8 @@ export type WarrantyValue = "Y" | "N" | "";
 
 export type ServiceBulletinInputSource = "MAIN_DATABASE" | "USER_UPLOAD";
 
+export type EesTemplateOperator = "garuda" | "citilink";
+
 export type ServiceBulletinRelationType =
   | "CONCURRENT"
   | "SUPERSEDES"
@@ -30,6 +32,7 @@ export interface ServiceBulletinRelationship {
   type: Exclude<ServiceBulletinRelationshipStatus, "BOTH" | "NONE">;
   rawType?: string | null;
   status: string | null;
+  syncStatus?: string | null;
   direction?: "INCOMING" | "OUTGOING";
   executionMode?: "REQUIRED" | "OPTIONAL_ALTERNATIVE";
   alternativeGroup?: string | null;
@@ -85,6 +88,7 @@ export interface ServiceBulletinViewModel {
   manufacturer: string;
   publicationDate: string | null;
   receivedAt: string | null;
+  complianceCategory: number | null;
   category: number | null;
   warranty: WarrantyValue;
   rep: string | null;
@@ -95,8 +99,11 @@ export interface ServiceBulletinViewModel {
   compliancePeriod: string | null;
   sbType: string | null;
   operatorId: string | null;
+  operatorCode?: string | null;
+  operatorName?: string | null;
   ocrStatus: string | null;
   draftStatus: string | null;
+  aiConfidence?: number | null;
   references: string[];
   affectedESNs: string[];
   affectedPartNumbers: string[];
@@ -106,6 +113,7 @@ export interface ServiceBulletinViewModel {
   createdById: string | null;
   createdByRole: string | null;
   inputSource: ServiceBulletinInputSource;
+  eesTemplate?: EesTemplateOperator | null;
   eesNumber: string | null;
   generatedEesId: string | null;
   eesReviewStatus: string | null;
@@ -265,6 +273,13 @@ export interface ServiceBulletinApplicabilityEngine {
   } | null;
   isApplicable: boolean;
   reason: string;
+  /**
+   * Evidence sources returned by the applicability API. Older backend
+   * responses may omit this field; the UI then falls back to the generic
+   * GMF engine database label.
+   */
+  dataSources?: string[];
+  source?: string | null;
 }
 
 export interface ServiceBulletinEesDocument {
@@ -272,14 +287,58 @@ export interface ServiceBulletinEesDocument {
   eesNumber: string;
   sourceSbId: string;
   taskType: string | null;
+  recommendedAction?: string | null;
+  recommended_action?: string | null;
+  consequence?: string | null;
   references: string | string[] | null;
   effectedType: string | null;
   effectedModel: string | string[] | null;
+  componentType?: string | null;
+  complianceTimeType?: string | null;
+  isRepetitive?: boolean | null;
+  note?: string | null;
   aircraftType: string | null;
   esn: string | null;
+  partNumber?: string | null;
+  eesTemplate?: EesTemplateOperator | string | null;
+  unitConcern?: string[] | string | null;
+  partClassification?: string[] | string | null;
+  reasonOfEvaluation?: string[] | string | null;
+  maintenanceLevel?: string[] | string | null;
+  accomplishmentMethod?: string[] | string | null;
+  engineeringAction?: string[] | string | null;
+  furtherImplementation?: string[] | string | null;
+  managementApproval?: string[] | string | null;
+  evaluationResult?: string[] | string | null;
+  evaluation_result?: string[] | string | null;
+  warranty?: boolean | null;
+  warrantyDueDate?: string | null;
+  warranty_due_date?: string | null;
+  warrantyNote?: string | null;
+  warranty_note?: string | null;
   reviewStatus: string | null;
   createdAt: string;
   evaluations: ServiceBulletinEesEvaluation[];
+  serviceBulletin?: {
+    id?: string;
+    sbNumber?: string;
+    revision?: string | null;
+    title?: string;
+    status?: string | null;
+    aircraftType?: string | null;
+    effectivityType?: string | null;
+    operator?: {
+      id?: string;
+      code?: string;
+      name?: string;
+    } | null;
+  };
+  permissions?: {
+    canEdit?: boolean;
+    canReview?: boolean;
+    canApprove?: boolean;
+    canResubmit?: boolean;
+  };
 }
 
 export interface ServiceBulletinEesEvaluation {
@@ -290,6 +349,9 @@ export interface ServiceBulletinEesEvaluation {
   requirementDesc: string;
   remarks: string | null;
   taskType: string | null;
+  references?: string[];
+  adRelated?: string | null;
+  affectedAcEngine?: string | null;
   warranty: boolean | null;
   rep: string | null;
   dueAt: string | null;
@@ -305,20 +367,45 @@ export interface EesValidatedPayload {
   sb_code: string;
   ees_number?: string;
   title?: string;
-  compliance_category: number;
+  compliance_category?: number;
   manufacturer?: string;
   issuer?: string;
+  revision?: string;
+  revision_number?: string;
+  impact_type?: string;
+  impact?: string;
+  issueDate?: string;
+  issued_date?: string;
   effected_type?: string;
-  effected_model?: string | string[];
+  effected_model?: string;
   aircraftType?: string;
   esn?: string;
   part_number?: string;
   component_type?: string;
   compliance_time_type?: string;
   repetitive?: boolean;
+  isRepetitive?: boolean;
   task_type?: string;
+  taskType?: string;
+  componentType?: string;
+  complianceTimeType?: string;
+  unitConcern?: string[];
+  reasonOfEvaluation?: string[];
+  maintenanceLevel?: string[];
+  accomplishmentMethod?: string[];
+  partClassification?: string[];
+  engineeringAction?: string[];
+  evaluationResult?: string;
+  evaluation_result?: string;
+  recommendedAction?: string;
+  recommended_action?: string;
+  furtherImplementation?: string[];
+  managementApproval?: string[];
   references?: string | string[];
   note?: string;
+  warranty?: boolean | null;
+  warranty_due_date?: string | null;
+  warranty_note?: string | null;
   compliance_period?: string;
   evaluations: Array<{
     itemNo?: string | number;

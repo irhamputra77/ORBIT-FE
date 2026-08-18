@@ -17,7 +17,7 @@ import {
   ShieldCheck,
   X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 
 import { MotionPopup } from "@/components/ui/motion-popup";
@@ -47,12 +47,31 @@ import type {
 
 type ReviewAction = "APPROVED" | "REJECTED";
 
+function subscribeToHydration() {
+  return () => undefined;
+}
+
+function getClientHydrationSnapshot() {
+  return true;
+}
+
+function getServerHydrationSnapshot() {
+  return false;
+}
+
 function formatStatus(value: string) {
   return value
     .toLowerCase()
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function preferPopulatedText(
+  preferred: string | null | undefined,
+  fallback: string | null | undefined,
+) {
+  return preferred && preferred !== "—" ? preferred : fallback ?? null;
 }
 
 function statusClass(status: string) {
@@ -132,10 +151,17 @@ function AssignmentListItem({
 
 export function SecondEngineerReviewPage({
   reviewerTarget = "SECOND_ENGINEER",
+  initialEesId,
 }: {
   reviewerTarget?: PresentationApprovalTarget;
+  initialEesId?: string;
 }) {
   const { dataSourceMode } = useApp();
+  const dataSourceReady = useSyncExternalStore(
+    subscribeToHydration,
+    getClientHydrationSnapshot,
+    getServerHydrationSnapshot,
+  );
   const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] = useState<
     ApprovalRequestStatus | "ALL"
@@ -147,7 +173,8 @@ export function SecondEngineerReviewPage({
       limit: 20,
       ...(statusFilter === "ALL" ? {} : { status: statusFilter }),
     },
-    dataSourceMode === "backend",
+    dataSourceReady && dataSourceMode === "backend",
+    reviewerTarget === "SECOND_ENGINEER" ? "history" : "inbox",
   );
   const presentationItems = useMemo(
     () => scenarios
@@ -161,7 +188,20 @@ export function SecondEngineerReviewPage({
       ),
     [reviewerTarget, scenarios, statusFilter],
   );
-  const query = dataSourceMode === "dummy"
+  const query = !dataSourceReady
+    ? {
+        items: [],
+        pagination: {
+          page: 1,
+          limit: 20,
+          total: 0,
+          totalPages: 1,
+        },
+        isLoading: true,
+        error: null,
+        retry: () => undefined,
+      }
+    : dataSourceMode === "dummy"
     ? {
         items: presentationItems,
         pagination: {
@@ -184,15 +224,64 @@ export function SecondEngineerReviewPage({
     ? "Second Engineer"
     : "Manager";
 
-  const selected = query.items.find(
-    (item) => item.approvalId === selectedId,
+  const initialSelectedId = initialEesId
+    ? query.items.find((item) => item.eesId === initialEesId)?.approvalId
+    : undefined;
+  const selectedListItem = query.items.find(
+    (item) => item.approvalId === (selectedId ?? initialSelectedId),
   )
     ?? query.items[0]
     ?? null;
   const detailQuery = useApprovalDetail(
-    selected?.eesId,
+    selectedListItem?.eesId,
     dataSourceMode === "backend",
   );
+  const selected = useMemo<ApprovalReviewItem | null>(() => {
+    if (!selectedListItem) return null;
+    const detail = detailQuery.data?.approval;
+    if (!detail || detail.eesId !== selectedListItem.eesId) {
+      return selectedListItem;
+    }
+
+    return {
+      ...selectedListItem,
+      approvalLevel: detail.approvalLevel || selectedListItem.approvalLevel,
+      reviewStatus: preferPopulatedText(
+        detail.reviewStatus,
+        selectedListItem.reviewStatus,
+      ) || "PENDING",
+      submittedById: preferPopulatedText(detail.submittedById, selectedListItem.submittedById),
+      assignedToId: preferPopulatedText(detail.assignedToId, selectedListItem.assignedToId),
+      submittedAt: preferPopulatedText(detail.submittedAt, selectedListItem.submittedAt) || "",
+      reviewedAt: preferPopulatedText(detail.reviewedAt, selectedListItem.reviewedAt),
+      comment: preferPopulatedText(detail.comment, selectedListItem.comment),
+      eesNumber: preferPopulatedText(detail.eesNumber, selectedListItem.eesNumber) || "—",
+      sourceSbId: preferPopulatedText(detail.sourceSbId, selectedListItem.sourceSbId) || "",
+      bulletinNumber: preferPopulatedText(detail.bulletinNumber, selectedListItem.bulletinNumber) || "—",
+      bulletinTitle: preferPopulatedText(detail.bulletinTitle, selectedListItem.bulletinTitle) || "—",
+      taskType: preferPopulatedText(detail.taskType, selectedListItem.taskType),
+      references: preferPopulatedText(detail.references, selectedListItem.references),
+      effectedType: preferPopulatedText(detail.effectedType, selectedListItem.effectedType),
+      effectedModel: preferPopulatedText(detail.effectedModel, selectedListItem.effectedModel),
+      componentType: preferPopulatedText(detail.componentType, selectedListItem.componentType),
+      complianceTimeType: preferPopulatedText(detail.complianceTimeType, selectedListItem.complianceTimeType),
+      isRepetitive: detail.isRepetitive ?? selectedListItem.isRepetitive,
+      note: preferPopulatedText(detail.note, selectedListItem.note),
+      aircraftType: preferPopulatedText(detail.aircraftType, selectedListItem.aircraftType),
+      esn: preferPopulatedText(detail.esn, selectedListItem.esn),
+      partNumber: preferPopulatedText(detail.partNumber, selectedListItem.partNumber),
+      eesTemplate: detail.eesTemplate ?? selectedListItem.eesTemplate,
+      operatorId: preferPopulatedText(detail.operatorId, selectedListItem.operatorId),
+      operatorCode: preferPopulatedText(detail.operatorCode, selectedListItem.operatorCode),
+      operatorName: preferPopulatedText(detail.operatorName, selectedListItem.operatorName),
+      createdByName: preferPopulatedText(detail.createdByName, selectedListItem.createdByName),
+      assignedToName: preferPopulatedText(detail.assignedToName, selectedListItem.assignedToName),
+      assignedToRole: preferPopulatedText(detail.assignedToRole, selectedListItem.assignedToRole),
+      hasGarudaPdf: detail.hasGarudaPdf || selectedListItem.hasGarudaPdf,
+      hasCitilinkPdf: detail.hasCitilinkPdf || selectedListItem.hasCitilinkPdf,
+      hasExcel: detail.hasExcel || selectedListItem.hasExcel,
+    };
+  }, [detailQuery.data, selectedListItem]);
   const effectiveStatus =
     detailQuery.data
     && selected
@@ -208,12 +297,14 @@ export function SecondEngineerReviewPage({
   );
   const isCitilink = Boolean(
     selected
-    && (
-      selected.operatorCode?.toUpperCase() === "QG"
-      || selected.operatorName?.toLowerCase().includes("citilink")
-      || /A320|ATR/i.test(selected.aircraftType || "")
-      || (selected.hasCitilinkPdf && !selected.hasGarudaPdf)
-    )
+    && (selected.eesTemplate
+      ? selected.eesTemplate === "citilink"
+      : (
+          selected.operatorCode?.toUpperCase() === "QG"
+          || selected.operatorName?.toLowerCase().includes("citilink")
+          || /A320|ATR/i.test(selected.aircraftType || "")
+          || (selected.hasCitilinkPdf && !selected.hasGarudaPdf)
+        ))
   );
   const isGaruda = Boolean(selected) && !isCitilink;
   const pdfOperator = isCitilink ? "citilink" : "garuda";
@@ -225,6 +316,11 @@ export function SecondEngineerReviewPage({
       || selected.hasCitilinkPdf
     )
   );
+  const isPdfContextLoading = Boolean(
+    dataSourceMode === "backend"
+    && detailQuery.isLoading
+    && !selected?.sourceSbId,
+  );
   const references = selected?.references
     ?.split(/\r?\n/)
     .map((item) => item.replace(/^-\s*/, "").trim())
@@ -233,7 +329,7 @@ export function SecondEngineerReviewPage({
     { label: "Effected Type", value: selected?.effectedType },
     { label: "Effected Model", value: selected?.effectedModel },
     { label: "Engine Serial Number", value: selected?.esn },
-    { label: "Component Type", value: selected?.componentType },
+    { label: "Aircraft Type Engine/APU", value: selected?.componentType },
     { label: "Part Number", value: selected?.partNumber },
     { label: "Compliance Time", value: selected?.complianceTimeType },
   ].filter((item) => Boolean(item.value));
@@ -336,10 +432,7 @@ export function SecondEngineerReviewPage({
             >
               <option value="ALL">All</option>
               <option value="PENDING">Pending</option>
-              <option value="PARTIALLY_APPROVED">Partially Approved</option>
               <option value="APPROVED">Approved</option>
-              <option value="REJECTED">Rejected</option>
-              <option value="RETURNED">Returned</option>
             </select>
           </label>
           <button
@@ -673,7 +766,12 @@ export function SecondEngineerReviewPage({
                   </div>
                   <span className="text-[10px] text-muted-foreground">{isGaruda ? "Garuda" : "Citilink"}</span>
                 </div>
-                {hasPdf ? (
+                {isPdfContextLoading ? (
+                  <div className="flex min-h-72 items-center justify-center gap-2 bg-muted/30 text-xs text-muted-foreground">
+                    <Loader2 size={16} className="animate-spin text-blue-700" />
+                    Memuat metadata preview EES...
+                  </div>
+                ) : hasPdf ? (
                   <iframe
                     src={getEesPdfUrl(selected.sourceSbId, pdfOperator, "view")}
                     title={`EES Preview ${selected.eesNumber}`}

@@ -29,6 +29,14 @@ To learn more about Next.js, take a look at the following resources:
 
 You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
 
+## Self-host with Nginx
+
+ORBIT includes a production-ready Nginx reverse proxy and `systemd` service.
+See [deploy/README.md](deploy/README.md) for installation and verification.
+
+The `/api/*` path must remain proxied to Next.js because the application uses
+Route Handlers as its backend-for-frontend layer.
+
 ## Deploy on Vercel
 
 The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.

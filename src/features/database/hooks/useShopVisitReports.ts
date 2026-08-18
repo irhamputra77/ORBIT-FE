@@ -2,6 +2,7 @@
 
 import axios from "axios";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { DUMMY_SHOP_VISIT_REPORTS } from "../data/shopVisitReportDummyData";
 import { getShopVisitReports } from "../services/shopVisitReportApi";
 import type { ShopVisitReport, ShopVisitReportListResponse } from "../types";
 
@@ -19,7 +20,7 @@ function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Data SVR tidak dapat dimuat.";
 }
 
-export function useShopVisitReports() {
+export function useShopVisitReports(useDummyData = false) {
   const abortRef = useRef<AbortController | null>(null);
   const [items, setItems] = useState<ShopVisitReport[]>([]);
   const [selected, setSelected] = useState<ShopVisitReport | null>(null);
@@ -29,7 +30,6 @@ export function useShopVisitReports() {
   const [meta, setMeta] = useState(EMPTY_META);
 
   useEffect(() => () => abortRef.current?.abort(), []);
-
   const select = useCallback((id: string) => {
     const report = items.find((item) => item.id === id) ?? null;
     setSelected(report);
@@ -38,12 +38,35 @@ export function useShopVisitReports() {
 
   const search = useCallback(async (esn?: string, page = 1) => {
     abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-    setIsLoading(true);
+    const normalizedEsn = esn?.trim().toLowerCase();
     setError(null);
     setHasSearched(true);
     setSelected(null);
+
+    if (useDummyData) {
+      const matchingReports = normalizedEsn
+        ? DUMMY_SHOP_VISIT_REPORTS.filter(report =>
+            report.engineSerialNumber.toLowerCase() === normalizedEsn
+          )
+        : DUMMY_SHOP_VISIT_REPORTS;
+      const limit = 20;
+      const offset = (page - 1) * limit;
+      const paginatedReports = matchingReports.slice(offset, offset + limit);
+      setIsLoading(false);
+      setItems(paginatedReports);
+      setSelected(paginatedReports[0] ?? null);
+      setMeta({
+        total: matchingReports.length,
+        page,
+        limit,
+        totalPages: Math.max(1, Math.ceil(matchingReports.length / limit)),
+      });
+      return;
+    }
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setIsLoading(true);
     try {
       const response = await getShopVisitReports(
         { page, limit: 20, esn: esn?.trim() || undefined },
@@ -61,7 +84,7 @@ export function useShopVisitReports() {
     } finally {
       if (!controller.signal.aborted) setIsLoading(false);
     }
-  }, []);
+  }, [useDummyData]);
 
   const reset = useCallback(() => {
     abortRef.current?.abort();
@@ -86,10 +109,11 @@ export function useShopVisitReports() {
   };
 }
 
-export function useShopVisitReportCount() {
+export function useShopVisitReportCount(enabled = true) {
   const [count, setCount] = useState<number | null>(null);
 
   useEffect(() => {
+    if (!enabled) return;
     const controller = new AbortController();
     getShopVisitReports({ page: 1, limit: 1 }, controller.signal)
       .then((response) => setCount(response.meta.total))
@@ -97,7 +121,7 @@ export function useShopVisitReportCount() {
         if (!controller.signal.aborted) setCount(null);
       });
     return () => controller.abort();
-  }, []);
+  }, [enabled]);
 
   return count;
 }

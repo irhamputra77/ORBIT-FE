@@ -1,5 +1,6 @@
 "use client";
 
+import axios from "axios";
 import {
   useState,
   useEffect,
@@ -68,6 +69,7 @@ import {
   type ServiceBulletinEesDocument,
   type ServiceBulletinEesEvaluation,
   type ServiceBulletinRelationship,
+  type ServiceBulletinInputSource,
   type ServiceBulletinViewModel,
 } from "@/features/service-bulletins";
 import {
@@ -95,10 +97,27 @@ import {
 } from "@/lib/ees/ge-classification";
 import { useEESGeneratorWorkflow } from "../hooks/useEESGeneratorWorkflow";
 import { useEESReviewHistory } from "../hooks/useEESReviewHistory";
-import { submitEesForApproval } from "../services/approval-service";
+import {
+  getApprovalCandidates,
+  submitEesForApproval,
+  type ApprovalCandidate,
+} from "../services/approval-service";
 import { isCategoryManual } from "../services/category-service";
 import { createValidatedEesPayload } from "../services/ees-payload";
-import { serializeEsnEntries } from "../services/esn-fields";
+import {
+  CITILINK_ACCOMPLISHMENT_METHODS,
+  CITILINK_COMPONENT_TYPES,
+  CITILINK_DEFAULT_REASON_OF_EVALUATION,
+  CITILINK_FURTHER_IMPLEMENTATION,
+  CITILINK_INSPECTION_TYPES,
+  CITILINK_MAINTENANCE_OPTIONS,
+  CITILINK_REASON_OPTIONS,
+  consequenceFromEngineeringAction,
+} from "../services/citilink-fields";
+import {
+  parseListEntries,
+  serializeListEntries,
+} from "../services/esn-fields";
 import {
   createPresentationApplicability,
   createPresentationApprovalStages,
@@ -143,6 +162,8 @@ const engMap: Record<string, string> = {
   ATR72: "PW127M",
 };
 
+type ManualUploadTemplate = "garuda" | "citilink";
+
 type DBServiceBulletin = {
   backendId?: string;
   isPresentationDummy?: boolean;
@@ -152,8 +173,13 @@ type DBServiceBulletin = {
   engine: string;
   fleet: string;
   operator?: string;
+  operatorCode?: string;
+  operatorName?: string;
+  eesTemplate?: ManualUploadTemplate;
+  inputSource?: ServiceBulletinInputSource;
   category: string;
-  sbCategory: number;
+  complianceCategory?: number;
+  sbCategory?: number;
   aiConfidence?: number;
   priority: string;
   status: string;
@@ -170,7 +196,10 @@ type DBServiceBulletin = {
   createdBy: string;
   ocrStatus: string;
   draftStatus: string;
+  generatedEesId?: string;
+  eesNumber?: string;
   eesReviewStatus: string;
+  eesCreatedAt?: string;
   recommendedAction: string;
   priorityLevel: string;
   engineeringNotes: string;
@@ -187,6 +216,30 @@ type DBServiceBulletin = {
   rep: string;
   evaluations: ServiceBulletinEesEvaluation[];
 };
+
+function isManualUploadTemplate(value: unknown): value is ManualUploadTemplate {
+  return value === "garuda" || value === "citilink";
+}
+
+function normalizeManualUploadTemplate(value: unknown): ManualUploadTemplate | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  return isManualUploadTemplate(normalized) ? normalized : null;
+}
+
+function normalizeApprovalOperator(...values: unknown[]): "GARUDA" | "CITILINK" | null {
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const normalized = value.trim().toUpperCase();
+    if (normalized === "GA" || normalized === "GARUDA" || normalized.includes("GARUDA")) {
+      return "GARUDA";
+    }
+    if (normalized === "QG" || normalized === "CITILINK" || normalized.includes("CITILINK")) {
+      return "CITILINK";
+    }
+  }
+  return null;
+}
 
 function updateEvaluationDraft(
   previous: Record<string, unknown>,
@@ -275,6 +328,7 @@ function toWorkflowServiceBulletin(sb: ServiceBulletinViewModel): DBServiceBulle
   const engineType = sb.effectivityType || "—";
   const isSynced = sb.eesReviewStatus?.toUpperCase() === "APPROVED";
   const affectedEngine = sb.affectedESNs.length ? sb.affectedESNs.join(", ") : "—";
+  const complianceCategory = sb.complianceCategory ?? 0;
   return {
     evaluations: sb.evaluations,
     backendId: sb.id,
@@ -283,10 +337,15 @@ function toWorkflowServiceBulletin(sb: ServiceBulletinViewModel): DBServiceBulle
     title: sb.title || sb.bulletinNumber || "Untitled Service Bulletin",
     engine: engineType,
     fleet,
-    category: sb.sbType || "",
+    operator: sb.operatorName || undefined,
+    operatorCode: sb.operatorCode || undefined,
+    operatorName: sb.operatorName || undefined,
+    inputSource: sb.inputSource,
+    eesTemplate: sb.eesTemplate ?? undefined,
+    category: complianceCategory ? `Category ${complianceCategory}` : "",
     warranty: sb.warranty,
     rep: sb.rep || "-",
-    sbCategory: sb.category ?? 0,
+    complianceCategory,
     priority: "",
     status: sb.status || "",
     compliance: sb.compliancePeriod || "",
@@ -302,7 +361,11 @@ function toWorkflowServiceBulletin(sb: ServiceBulletinViewModel): DBServiceBulle
     createdBy: sb.createdBy || "",
     ocrStatus: sb.ocrStatus || "",
     draftStatus: sb.draftStatus || "",
+    aiConfidence: sb.aiConfidence ?? undefined,
+    generatedEesId: sb.generatedEesId || "",
+    eesNumber: sb.eesNumber || "",
     eesReviewStatus: sb.eesReviewStatus || "",
+    eesCreatedAt: sb.eesCreatedAt || "",
     recommendedAction: sb.recommendedAction || "",
     priorityLevel: sb.priorityLevel || "",
     engineeringNotes: sb.engineeringNotes || "",
@@ -315,6 +378,105 @@ function toWorkflowServiceBulletin(sb: ServiceBulletinViewModel): DBServiceBulle
     lastSync: sb.receivedAt || sb.createdAt || "",
     syncStatus: isSynced ? "Synced" : "Unsynced",
     tdrRef: isSynced ? sb.eesNumber || "" : "",
+  };
+}
+
+function getComplianceCategory(sb?: DBServiceBulletin | null) {
+  if (!sb) return 0;
+  if (typeof sb.complianceCategory === "number") return sb.complianceCategory;
+  return sb.isPresentationDummy ? sb.sbCategory ?? 0 : 0;
+}
+
+function isGeneratedServiceBulletin(sb: DBServiceBulletin) {
+  return sb.draftStatus.toUpperCase() === "GENERATED" || Boolean(sb.generatedEesId);
+}
+
+function getEvaluationApplicable(
+  evaluations: ServiceBulletinEesEvaluation[],
+  fallback = "",
+) {
+  if (!evaluations.length) return fallback;
+  return evaluations.every(evaluation => evaluation.isApplicable) ? "Yes" : "No";
+}
+
+function getEvaluationRep(
+  document: ServiceBulletinEesDocument | null | undefined,
+  evaluations: ServiceBulletinEesEvaluation[],
+  fallback = "",
+) {
+  const evaluationRep = evaluations.find(evaluation => evaluation.rep?.trim())?.rep?.trim();
+  if (evaluationRep) return evaluationRep;
+  if (typeof document?.isRepetitive === "boolean") {
+    return document.isRepetitive ? "Y" : "N";
+  }
+  return fallback;
+}
+
+function processStatusStyle(status: string) {
+  switch (status.toUpperCase()) {
+    case "GENERATED":
+    case "APPROVED":
+    case "EXTRACTED":
+      return { background: "#10B98115", color: "#059669" };
+    case "REJECTED":
+    case "TERMINATED":
+      return { background: "#EF444415", color: "#DC2626" };
+    case "REVIEW_REQUIRED":
+    case "RETURNED":
+      return { background: "#F59E0B15", color: "#D97706" };
+    case "PENDING":
+    case "DRAFT":
+      return { background: "#818CF815", color: "#6366F1" };
+    default:
+      return { background: "#64748B12", color: "#64748B" };
+  }
+}
+
+function mergeUploadedServiceBulletin(
+  uploaded: DBServiceBulletin,
+  fresh: DBServiceBulletin,
+): DBServiceBulletin {
+  return {
+    ...uploaded,
+    ...fresh,
+    operator: uploaded.operator || fresh.operator,
+    operatorCode: fresh.operatorCode || uploaded.operatorCode,
+    operatorName: fresh.operatorName || uploaded.operatorName,
+    eesTemplate: uploaded.eesTemplate || fresh.eesTemplate,
+    source: uploaded.source === "AI Upload" ? uploaded.source : fresh.source,
+  };
+}
+
+function attachGeneratedEesDocument(
+  sb: DBServiceBulletin,
+  document: ServiceBulletinEesDocument,
+): DBServiceBulletin {
+  const affectedESNs = parseListEntries(document.esn);
+  const affectedPartNumbers = parseListEntries(document.partNumber);
+
+  return {
+    ...sb,
+    generatedEesId: document.id,
+    eesNumber: document.eesNumber,
+    eesReviewStatus: document.reviewStatus || sb.eesReviewStatus,
+    eesCreatedAt: document.createdAt || sb.eesCreatedAt,
+    draftStatus: "GENERATED",
+    operator: document.serviceBulletin?.operator?.name || sb.operator,
+    operatorCode: document.serviceBulletin?.operator?.code || sb.operatorCode,
+    operatorName: document.serviceBulletin?.operator?.name || sb.operatorName,
+    eesTemplate: sb.eesTemplate
+      || normalizeManualUploadTemplate(document.eesTemplate)
+      || undefined,
+    evaluations: document.evaluations?.length
+      ? document.evaluations
+      : sb.evaluations,
+    affectedESNs: affectedESNs.length ? affectedESNs : sb.affectedESNs,
+    affectedEngine: affectedESNs.length
+      ? serializeListEntries(affectedESNs)
+      : sb.affectedEngine,
+    affectedPartNumbers: affectedPartNumbers.length
+      ? affectedPartNumbers
+      : sb.affectedPartNumbers,
   };
 }
 
@@ -830,6 +992,9 @@ function SBContextPanel({ sb, category, collapsed, onToggle, docViewerOpen, onTo
     : [];
   const backendRelationships: ServiceBulletinRelationship[] =
     relationshipQuery.data?.relationships ?? [];
+  const unregisteredRelationshipCount = backendRelationships.filter(
+    relationship => relationship.syncStatus === "UNREGISTERED",
+  ).length;
   const relationshipBadge = sb?.isPresentationDummy
     ? RELATIONSHIP_STATUS_LABEL[
         (sb.relationshipStatus ?? "NONE") as SBRelationshipStatus
@@ -837,7 +1002,7 @@ function SBContextPanel({ sb, category, collapsed, onToggle, docViewerOpen, onTo
     : relationshipQuery.isLoading
       ? "Loading"
       : backendRelationships.length
-        ? `${backendRelationships.length} Direct`
+        ? `${backendRelationships.length} Direct${unregisteredRelationshipCount ? ` · ${unregisteredRelationshipCount} Unregistered` : ""}`
         : "No Relationship";
 
   return (
@@ -984,8 +1149,16 @@ function SBContextPanel({ sb, category, collapsed, onToggle, docViewerOpen, onTo
                           <span className="min-w-0 flex-1 truncate font-mono text-[9px] font-bold text-foreground">
                             {relationship.bulletinNumber}
                           </span>
-                          <span className="rounded-full bg-blue-500/10 px-1.5 py-0.5 text-[8px] font-semibold text-blue-600">
-                            {relationship.status || "—"}
+                          <span
+                            className={`rounded-full border px-1.5 py-0.5 text-[8px] font-bold ${
+                              relationship.syncStatus === "UNREGISTERED"
+                                ? "border-amber-500 bg-amber-500 text-white"
+                                : relationship.syncStatus === "REGISTERED"
+                                  ? "border-emerald-600 bg-emerald-600 text-white"
+                                  : "border-slate-500 bg-slate-600 text-white"
+                            }`}
+                          >
+                            {relationship.syncStatus || "UNKNOWN"}
                           </span>
                         </div>
                         <div className="mt-1 text-[8px] text-muted-foreground">
@@ -995,6 +1168,11 @@ function SBContextPanel({ sb, category, collapsed, onToggle, docViewerOpen, onTo
                             ? "Incoming"
                             : "Outgoing"}
                         </div>
+                        {relationship.syncStatus === "UNREGISTERED" && (
+                          <div className="mt-1 text-[8px] font-medium text-amber-700">
+                            Not registered in the main SB database
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1043,7 +1221,7 @@ function Step1SelectSB({
       sortBy: "receivedAt",
       sortOrder: "desc",
     },
-    { fetchAll: true, enabled: !useDummyData },
+    { fetchAll: true, enabled: !useDummyData, pendingOnly: true },
   );
   const uploadServiceBulletin = useUploadServiceBulletin();
   const [searchQuery, setSearchQuery] = useState("");
@@ -1051,14 +1229,18 @@ function Step1SelectSB({
   const [filterEngine, setFilterEngine] = useState("");
   const [filterSync, setFilterSync] = useState("");
   const [selectedSB, setSelectedSB] = useState<DBServiceBulletin | null>(saved?.selectedSB || null);
+  const [selectedEesDocument, setSelectedEesDocument] =
+    useState<ServiceBulletinEesDocument | null>(saved?.generatedEesDocument || null);
   const [summarizing, setSummarizing] = useState(false);
   const [summarized, setSummarized] = useState(!!saved?.summarized);
   const [showManualModal, setShowManualModal] = useState(false);
+  const [showCancelUploadConfirmation, setShowCancelUploadConfirmation] = useState(false);
   const [showUnsyncedModal, setShowUnsyncedModal] = useState(false);
   const [uploadFleetType, setUploadFleetType] = useState("");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadDragging, setUploadDragging] = useState(false);
   const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
+  const [preparingEes, setPreparingEes] = useState(false);
   const [presentationSBs, setPresentationSBs] = useState<DBServiceBulletin[]>(
     PRESENTATION_SERVICE_BULLETINS,
   );
@@ -1071,6 +1253,23 @@ function Step1SelectSB({
   const aircraftTypesLoading = !useDummyData && aircraftTypesQuery.isLoading;
   const aircraftTypesError = useDummyData ? null : aircraftTypesQuery.error;
 
+  useEffect(() => {
+    if (!uploadServiceBulletin.isBusy) {
+      setShowCancelUploadConfirmation(false);
+    }
+  }, [uploadServiceBulletin.isBusy]);
+
+  // The navbar task card can restore this popup after the user minimized it.
+  // Keep the active file and request intact; only the popup visibility changes.
+  useEffect(() => {
+    if (uploadServiceBulletin.openUploadPanelRequest <= 0 || !uploadServiceBulletin.isBusy) return;
+    const restoreTimer = window.setTimeout(() => setShowManualModal(true), 0);
+    return () => window.clearTimeout(restoreTimer);
+  }, [
+    uploadServiceBulletin.isBusy,
+    uploadServiceBulletin.openUploadPanelRequest,
+  ]);
+
   const backendServiceBulletins = useMemo<DBServiceBulletin[]>(
     () => serviceBulletinQuery.items.map(toWorkflowServiceBulletin),
     [serviceBulletinQuery.items],
@@ -1080,24 +1279,33 @@ function Step1SelectSB({
     : backendServiceBulletins;
   const uniqueFleets = [...new Set(allSBs.map((sb) => sb.fleet))];
   const uniqueEngines = [...new Set(allSBs.map((sb) => sb.engineType))];
-
-  const filtered = allSBs.filter((sb) => {
-    const q = searchQuery.toLowerCase();
-    const mQ = !q || sb.id.toLowerCase().includes(q) || (sb.title || sb.id).toLowerCase().includes(q) || sb.fleet.toLowerCase().includes(q) || sb.engineType.toLowerCase().includes(q);
-    const mF = !filterFleet || sb.fleet === filterFleet;
-    const mE = !filterEngine || sb.engineType === filterEngine;
-    const mS = !filterSync || sb.syncStatus === filterSync;
-    return mQ && mF && mE && mS;
+  const visibleSBs = allSBs.filter((sb) => {
+    const query = searchQuery.trim().toLowerCase();
+    const matchesQuery = !query
+      || sb.id.toLowerCase().includes(query)
+      || sb.title.toLowerCase().includes(query)
+      || sb.fleet.toLowerCase().includes(query)
+      || sb.engineType.toLowerCase().includes(query);
+    const matchesFleet = !filterFleet || sb.fleet === filterFleet;
+    const matchesEngine = !filterEngine || sb.engineType === filterEngine;
+    const matchesSync = !filterSync || sb.syncStatus === filterSync;
+    return matchesQuery && matchesFleet && matchesEngine && matchesSync;
   });
 
   const isSelectedUnsynced = selectedSB?.syncStatus === "Unsynced";
 
-  const handleSelectSB = async (sb: DBServiceBulletin) => {
+  const loadSelectedSB = async (sb: DBServiceBulletin) => {
     const requestVersion = ++detailRequestVersion.current;
     setSelectedSB(sb);
+    setSelectedEesDocument(null);
     setSummarized(false);
+    onSave({
+      selectedSB: sb,
+      generatedEesDocument: null,
+      summarized: false,
+      isUnsyncedSB: sb.syncStatus === "Unsynced",
+    });
     if (!sb.backendId) {
-      onSave({ selectedSB: sb, summarized: false });
       return;
     }
 
@@ -1106,20 +1314,37 @@ function Step1SelectSB({
       const detail = await getServiceBulletin(sb.backendId);
       if (detailRequestVersion.current !== requestVersion) return;
 
-      const detailedSB = toWorkflowServiceBulletin(detail);
+      const detailedSB = mergeUploadedServiceBulletin(
+        sb,
+        toWorkflowServiceBulletin(detail),
+      );
+      if (detailRequestVersion.current !== requestVersion) return;
       setSelectedSB(detailedSB);
       onSave({
         selectedSB: detailedSB,
+        generatedEesDocument: null,
         summarized: false,
         isUnsyncedSB: detailedSB.syncStatus === "Unsynced",
       });
     } catch {
       if (detailRequestVersion.current !== requestVersion) return;
       setSelectedSB(null);
+      setSelectedEesDocument(null);
+      onSave({
+        selectedSB: null,
+        generatedEesDocument: null,
+        summarized: false,
+        isUnsyncedSB: false,
+      });
       toast.error("Detail Service Bulletin tidak dapat dimuat. Silakan pilih kembali.");
     } finally {
       if (detailRequestVersion.current === requestVersion) setDetailLoadingId(null);
     }
+  };
+
+  const handleSelectSB = (sb: DBServiceBulletin) => {
+    if (preparingEes) return;
+    void loadSelectedSB(sb);
   };
 
   const handleSummarize = async () => {
@@ -1152,13 +1377,39 @@ function Step1SelectSB({
     }
   };
 
-  const handleCloseUploadModal = () => {
-    if (uploadServiceBulletin.isBusy) uploadServiceBulletin.cancel();
+  const closeUploadModal = () => {
     uploadServiceBulletin.reset();
     setUploadFleetType("");
     setUploadFile(null);
     setUploadDragging(false);
     setShowManualModal(false);
+  };
+
+  const minimizeUploadModal = () => {
+    setShowManualModal(false);
+    toast.info("Upload continues in the navigation bar. Select the upload card to reopen it.");
+  };
+
+  const requestCloseUploadModal = () => {
+    if (uploadServiceBulletin.isBusy) {
+      minimizeUploadModal();
+      return;
+    }
+    closeUploadModal();
+  };
+
+  const requestCancelUpload = () => {
+    if (uploadServiceBulletin.isBusy) {
+      setShowCancelUploadConfirmation(true);
+      return;
+    }
+    closeUploadModal();
+  };
+
+  const confirmCancelUpload = () => {
+    uploadServiceBulletin.cancel();
+    setShowCancelUploadConfirmation(false);
+    closeUploadModal();
   };
 
   const handleUploadSB = async () => {
@@ -1173,9 +1424,8 @@ function Step1SelectSB({
         id: `DEMO-${uploadFile.name.replace(/\.pdf$/i, "").toUpperCase()}`,
         title: fileLabel || "Uploaded Presentation Service Bulletin",
         fleet: uploadFleetType,
-        operator: uploadFleetType.includes("A320") || uploadFleetType.includes("ATR")
-          ? "Citilink Indonesia"
-          : "Garuda Indonesia",
+        operator: "Unassigned",
+        eesTemplate: undefined,
         engine: engineType,
         engineType,
         affectedESNs: ["DEMO-ESN-001", "DEMO-ESN-002"],
@@ -1203,7 +1453,10 @@ function Step1SelectSB({
       return;
     }
 
-    const result = await uploadServiceBulletin.upload(uploadFile, uploadFleetType);
+    const result = await uploadServiceBulletin.upload(
+      uploadFile,
+      uploadFleetType,
+    );
     if (!result) return;
 
     const mappedUploadedSB = toWorkflowServiceBulletin(result.serviceBulletin);
@@ -1216,13 +1469,8 @@ function Step1SelectSB({
       tdr: "",
       tdrRef: "",
     };
-    setSelectedSB(uploadedSB);
     setSummarized(result.aiCompleted);
-    onSave({
-      selectedSB: uploadedSB,
-      summarized: result.aiCompleted,
-      isUnsyncedSB: true,
-    });
+    void loadSelectedSB(uploadedSB);
     serviceBulletinQuery.retry();
 
     if (result.warning || !result.aiCompleted) {
@@ -1237,13 +1485,83 @@ function Step1SelectSB({
     setShowManualModal(false);
   };
 
-  const handleContinue = () => {
-    if (!selectedSB || detailLoadingId) return;
-    if (isSelectedUnsynced) {
-      setShowUnsyncedModal(true);
-    } else {
-      onNext({ selectedSB, fleet: selectedSB.fleet, tdr: selectedSB.tdrRef, isUnsyncedSB: false });
+  const prepareEesAndContinue = async (
+    sb: DBServiceBulletin,
+    continueAsUnsyncedDraft = false,
+  ) => {
+    if (preparingEes) return;
+
+    if (!sb.backendId) {
+      onNext({
+        selectedSB: sb,
+        generatedEesDocument: selectedEesDocument,
+        aiSummary: saved?.aiSummary,
+        summarized,
+        fleet: sb.fleet,
+        tdr: continueAsUnsyncedDraft ? "" : sb.tdrRef,
+        isUnsyncedSB: continueAsUnsyncedDraft,
+      });
+      return;
     }
+
+    setPreparingEes(true);
+    try {
+      let eesResult;
+      if (isGeneratedServiceBulletin(sb)) {
+        eesResult = await getServiceBulletinEes(sb.backendId);
+      } else {
+        await generateServiceBulletinEes(sb.backendId, {
+          aircraftType: sb.fleet || undefined,
+        });
+        eesResult = await getServiceBulletinEes(sb.backendId);
+      }
+
+      // Recover when the SB metadata is stale and points to an EES that no longer exists.
+      if (eesResult.status === "not-found") {
+        await generateServiceBulletinEes(sb.backendId, {
+          aircraftType: sb.fleet || undefined,
+        });
+        eesResult = await getServiceBulletinEes(sb.backendId);
+      }
+
+      if (eesResult.status !== "available") {
+        throw new Error("EES document was not found after generation.");
+      }
+
+      const selectedWithEes = attachGeneratedEesDocument(sb, eesResult.data);
+      setSelectedSB(selectedWithEes);
+      setSelectedEesDocument(eesResult.data);
+
+      const nextData = {
+        selectedSB: selectedWithEes,
+        generatedEesDocument: eesResult.data,
+        aiSummary: saved?.aiSummary,
+        summarized,
+        fleet: selectedWithEes.fleet,
+        tdr: eesResult.data.eesNumber || selectedWithEes.tdrRef,
+        // A generated backend EES is no longer a local-only draft, even when
+        // the source SB was initially uploaded with an Unsynced marker.
+        isUnsyncedSB: false,
+      };
+      onSave({
+        ...nextData,
+        summarized,
+      });
+      onNext(nextData);
+    } catch {
+      toast.error("EES tidak dapat disiapkan. Silakan coba Continue kembali.");
+    } finally {
+      setPreparingEes(false);
+    }
+  };
+
+  const handleContinue = () => {
+    if (!selectedSB || detailLoadingId || preparingEes) return;
+    if (selectedSB.syncStatus === "Unsynced") {
+      setShowUnsyncedModal(true);
+      return;
+    }
+    void prepareEesAndContinue(selectedSB);
   };
 
   return (
@@ -1268,7 +1586,10 @@ function Step1SelectSB({
                 Cancel
               </button>
               <button
-                onClick={() => { setShowUnsyncedModal(false); onNext({ selectedSB, fleet: selectedSB!.fleet, tdr: "", isUnsyncedSB: true }); }}
+                onClick={() => {
+                  setShowUnsyncedModal(false);
+                  if (selectedSB) void prepareEesAndContinue(selectedSB, true);
+                }}
                 className="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold text-white"
                 style={{ background: "linear-gradient(135deg, #F59E0B, #D97706)" }}>
                 Continue as Draft
@@ -1281,7 +1602,7 @@ function Step1SelectSB({
         open={showManualModal}
         onOpenChange={(open) => {
           if (open) setShowManualModal(true);
-          else handleCloseUploadModal();
+          else requestCloseUploadModal();
         }}
         title="Upload New Service Bulletin"
         description="Upload a PDF for backend validation and AI extraction."
@@ -1298,7 +1619,13 @@ function Step1SelectSB({
                   <div className="text-[10px] text-muted-foreground">Metadata will be extracted from the uploaded PDF</div>
                 </div>
               </div>
-              <button onClick={handleCloseUploadModal} className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-all">
+              <button
+                type="button"
+                onClick={requestCloseUploadModal}
+                title={uploadServiceBulletin.isBusy ? "Minimize upload (continues in the navbar)" : "Close upload"}
+                aria-label={uploadServiceBulletin.isBusy ? "Minimize active upload" : "Close upload"}
+                className="w-7 h-7 rounded-lg flex items-center justify-center text-muted-foreground hover:text-foreground hover:bg-accent transition-all"
+              >
                 <X size={14} />
               </button>
             </div>
@@ -1308,7 +1635,7 @@ function Step1SelectSB({
                 <p className="text-[11px] text-muted-foreground leading-relaxed">
                   {useDummyData
                     ? "Presentation mode simulates PDF validation and AI metadata extraction locally. The uploaded SB will appear as an unsynced draft with an empty TDR."
-                    : "Upload the original SB PDF. The backend will validate the file, store it, and extract its metadata using AI. Fleet Type is selected separately to assign the correct EES workflow template."}
+                    : "Upload the original SB PDF. The backend will validate the document and extract its metadata without requiring an EES template during upload."}
                 </p>
               </div>
               <div>
@@ -1345,7 +1672,7 @@ function Step1SelectSB({
                 ) : (
                   <p className="mt-1.5 text-[10px] leading-relaxed text-muted-foreground">
                     {useDummyData
-                      ? "The selected fleet determines the presentation EES template."
+                      ? "The fleet is stored independently and no EES template is required during upload."
                       : "The selected value is sent to the backend as X-Aircraft-Type."}
                   </p>
                 )}
@@ -1439,7 +1766,7 @@ function Step1SelectSB({
               )}
             </div>
             <div className="px-5 py-4 flex items-center justify-between gap-3 shrink-0" style={{ borderTop: "1px solid var(--border)", background: "var(--muted)" }}>
-              <button onClick={handleCloseUploadModal} className="px-4 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:bg-accent transition-all" style={{ border: "1px solid var(--border)" }}>
+              <button onClick={requestCancelUpload} className="px-4 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:bg-accent transition-all" style={{ border: "1px solid var(--border)" }}>
                 {uploadServiceBulletin.isBusy ? "Cancel Upload" : "Cancel"}
               </button>
               <button onClick={handleUploadSB} disabled={!uploadFile || !uploadFleetType || uploadServiceBulletin.isBusy || aircraftTypesLoading}
@@ -1451,32 +1778,95 @@ function Step1SelectSB({
             </div>
       </MotionPopup>
 
+      <MotionPopup
+        open={showCancelUploadConfirmation}
+        onOpenChange={(open) => setShowCancelUploadConfirmation(open)}
+        title="Cancel Service Bulletin upload?"
+        description="Confirm whether the active Service Bulletin upload should be stopped."
+        className="max-w-sm p-6"
+        layerClassName="z-[70]"
+        overlayClassName="z-[70]"
+        closeOnInteractOutside={false}
+      >
+        <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-red-500/10">
+          <AlertTriangle size={24} className="text-red-600" />
+        </div>
+        <h3 className="mb-2 text-center text-sm font-bold text-foreground">
+          Are you sure you want to cancel?
+        </h3>
+        <p className="text-center text-xs leading-relaxed text-muted-foreground">
+          The PDF upload and metadata or AI extraction are still in progress. Cancelling now
+          will stop the current request, and progress that has not been saved by the server may
+          be lost.
+        </p>
+        {uploadServiceBulletin.fileName && (
+          <div className="mt-4 rounded-xl border border-border bg-muted px-3 py-2.5 text-center">
+            <div className="text-[9px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Active upload
+            </div>
+            <div className="mt-1 truncate text-xs font-semibold text-foreground">
+              {uploadServiceBulletin.fileName}
+            </div>
+          </div>
+        )}
+        <div className="mt-5 flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setShowCancelUploadConfirmation(false)}
+            className="flex-1 rounded-xl border border-border px-4 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-accent"
+          >
+            Keep Upload Running
+          </button>
+          <button
+            type="button"
+            onClick={confirmCancelUpload}
+            className="flex-1 rounded-xl bg-red-600 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-red-700"
+          >
+            Yes, Cancel Upload
+          </button>
+        </div>
+      </MotionPopup>
+
       {/* ── SB List (right panel content for step 1) ─────────────── */}
       <div className="flex flex-col h-full overflow-hidden">
-        {/* Search + filters */}
-        <div className="shrink-0 px-3 py-2.5 space-y-2" style={{ borderBottom: "1px solid var(--border)" }}>
-          <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg" style={{ background: "var(--muted)", border: "1px solid var(--border)" }}>
-            <Search size={11} className="text-muted-foreground shrink-0" />
-            <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search SB ID, fleet, engine type..."
-              className="flex-1 bg-transparent outline-none text-[11px] text-foreground placeholder:text-muted-foreground" />
-            {searchQuery && <button onClick={() => setSearchQuery("")}><X size={10} className="text-muted-foreground" /></button>}
+        {/* User-controlled filters; all backend records remain in allSBs. */}
+        <div className="shrink-0 space-y-2 border-b border-border px-3 py-2.5">
+          <div className="flex items-center gap-1.5 rounded-lg border border-border bg-muted px-2.5 py-1.5">
+            <Search size={11} className="shrink-0 text-muted-foreground" />
+            <input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Search SB ID, fleet, engine type..."
+              className="flex-1 bg-transparent text-[11px] text-foreground outline-none placeholder:text-muted-foreground"
+            />
+            {searchQuery && (
+              <button type="button" onClick={() => setSearchQuery("")} aria-label="Clear Service Bulletin search">
+                <X size={10} className="text-muted-foreground" />
+              </button>
+            )}
           </div>
           <div className="flex gap-1.5">
-            <select value={filterFleet} onChange={e => setFilterFleet(e.target.value)}
-              className="flex-1 px-2 py-1.5 rounded-lg text-[10px] text-foreground outline-none min-w-0"
-              style={{ border: "1px solid var(--border)", background: "var(--muted)" }}>
+            <select
+              value={filterFleet}
+              onChange={(event) => setFilterFleet(event.target.value)}
+              className="min-w-0 flex-1 rounded-lg border border-border bg-muted px-2 py-1.5 text-[10px] text-foreground outline-none"
+            >
               <option value="">All Fleets</option>
-              {uniqueFleets.map(f => <option key={f} value={f}>{f}</option>)}
+              {uniqueFleets.map((fleet) => <option key={fleet} value={fleet}>{fleet}</option>)}
             </select>
-            <select value={filterEngine} onChange={e => setFilterEngine(e.target.value)}
-              className="flex-1 px-2 py-1.5 rounded-lg text-[10px] text-foreground outline-none min-w-0"
-              style={{ border: "1px solid var(--border)", background: "var(--muted)" }}>
+            <select
+              value={filterEngine}
+              onChange={(event) => setFilterEngine(event.target.value)}
+              className="min-w-0 flex-1 rounded-lg border border-border bg-muted px-2 py-1.5 text-[10px] text-foreground outline-none"
+            >
               <option value="">All Engines</option>
-              {uniqueEngines.map(e => <option key={e} value={e}>{e}</option>)}
+              {uniqueEngines.map((engine) => <option key={engine} value={engine}>{engine}</option>)}
             </select>
-            <select value={filterSync} onChange={e => setFilterSync(e.target.value)}
-              className="flex-1 px-2 py-1.5 rounded-lg text-[10px] text-foreground outline-none min-w-0"
-              style={{ border: "1px solid var(--border)", background: "var(--muted)" }}>
+            <select
+              value={filterSync}
+              onChange={(event) => setFilterSync(event.target.value)}
+              className="min-w-0 flex-1 rounded-lg border border-border bg-muted px-2 py-1.5 text-[10px] text-foreground outline-none"
+            >
               <option value="">All</option>
               <option value="Synced">Synced</option>
               <option value="Unsynced">Unsynced</option>
@@ -1490,7 +1880,11 @@ function Step1SelectSB({
           <span className="text-[9px] font-semibold text-white/90">
             {useDummyData ? "Presentation Dataset — Service Bulletins" : "Main Database — Service Bulletins"}
           </span>
-          <span className="ml-auto text-[9px] text-white/50">{filtered.length} records</span>
+          <span className="ml-auto text-[9px] text-white/60">
+            {useDummyData
+              ? `${visibleSBs.length} of ${allSBs.length} presentation records`
+              : `${visibleSBs.length} shown · ${allSBs.length} received from API`}
+          </span>
         </div>
 
         {/* SB list */}
@@ -1509,12 +1903,12 @@ function Step1SelectSB({
               </button>
             </div>
           )}
-          {filtered.slice(0, 30).map((sb, i) => {
+          {visibleSBs.map((sb, i) => {
             const isSelected = selectedSB?.id === sb.id;
             const isUnsynced = sb.syncStatus === "Unsynced";
             const isLoadingDetail = detailLoadingId === sb.backendId;
             return (
-              <div key={sb.id + i} onClick={() => { void handleSelectSB(sb); }}
+              <div key={sb.id + i} onClick={() => handleSelectSB(sb)}
                 className="px-3 py-2.5 cursor-pointer hover:bg-accent/50 transition-colors"
                 style={{ borderBottom: "1px solid var(--border)", background: isSelected ? "rgba(2,66,219,0.07)" : "transparent" }}>
                 <div className="flex items-start gap-2">
@@ -1536,13 +1930,43 @@ function Step1SelectSB({
                       <span className="text-[9px] px-1 py-0.5 rounded font-medium" style={{ background: "#0242DB10", color: "#0242DB" }}>{sb.fleet}</span>
                       <span className="text-[9px] text-muted-foreground truncate">{sb.engineType} · Rev {sb.revision || "—"} · {sb.status || "—"}</span>
                     </div>
+                    <div className="mt-1.5 flex flex-wrap items-center gap-1">
+                      {sb.ocrStatus && (
+                        <span
+                          className="rounded px-1.5 py-0.5 text-[8px] font-semibold"
+                          style={processStatusStyle(sb.ocrStatus)}
+                        >
+                          OCR: {sb.ocrStatus.replaceAll("_", " ")}
+                        </span>
+                      )}
+                      {sb.draftStatus && (
+                        <span
+                          className="rounded px-1.5 py-0.5 text-[8px] font-semibold"
+                          style={processStatusStyle(sb.draftStatus)}
+                        >
+                          Draft: {sb.draftStatus.replaceAll("_", " ")}
+                        </span>
+                      )}
+                      {sb.eesReviewStatus && (
+                        <span
+                          className="rounded px-1.5 py-0.5 text-[8px] font-semibold"
+                          style={processStatusStyle(sb.eesReviewStatus)}
+                        >
+                          EES: {sb.eesReviewStatus.replaceAll("_", " ")}
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
             );
           })}
-          {(!serviceBulletinQuery.isLoading || useDummyData) && (!serviceBulletinQuery.error || useDummyData) && filtered.length === 0 && (
-            <div className="px-3 py-8 text-center text-[11px] text-muted-foreground">No SBs match the current filters.</div>
+          {(!serviceBulletinQuery.isLoading || useDummyData) && (!serviceBulletinQuery.error || useDummyData) && visibleSBs.length === 0 && (
+            <div className="px-3 py-8 text-center text-[11px] text-muted-foreground">
+              {allSBs.length === 0
+                ? "No Service Bulletins were returned by the API."
+                : "No Service Bulletins match the selected filters."}
+            </div>
           )}
         </div>
 
@@ -1561,21 +1985,24 @@ function Step1SelectSB({
                 style={{ border: "1px solid var(--border)" }}>
                 <Upload size={11} /> Upload New SB
               </button>
-              <button onClick={handleSummarize} disabled={!selectedSB || !!detailLoadingId || summarizing || summarized || isSelectedUnsynced}
+              <button onClick={handleSummarize} disabled={!selectedSB || !!detailLoadingId || preparingEes || summarizing || summarized || isSelectedUnsynced}
                 className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-[11px] font-medium text-white disabled:opacity-40"
                 style={{ background: "linear-gradient(135deg, #0242DB, #00C2FF)" }}>
                 {summarizing ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
                 {summarizing ? "Summarizing..." : summarized ? "SB Summarized ✓" : "Summarize SB"}
               </button>
             </div>
-            <motion.button whileHover={nextButtonHover} whileTap={nextButtonTap} disabled={!selectedSB || !!detailLoadingId} onClick={handleContinue}
+            <motion.button whileHover={nextButtonHover} whileTap={nextButtonTap} disabled={!selectedSB || !!detailLoadingId || preparingEes} onClick={handleContinue}
               className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40"
               style={{ background: isSelectedUnsynced ? "linear-gradient(135deg, #F59E0B, #D97706)" : "linear-gradient(135deg, #0E1B93, #0242DB, #00C2FF)", boxShadow: selectedSB ? "0 4px 16px rgba(0,194,255,0.3)" : "none" }}>
+              {(detailLoadingId || preparingEes) && <Loader2 size={13} className="animate-spin" />}
               {detailLoadingId
-                ? "Loading SB Detail..."
-                : isSelectedUnsynced
-                  ? "Continue as Draft"
-                  : "Continue to Category Review"} <ChevronRight size={14} />
+                ? "Loading SB..."
+                : preparingEes
+                  ? "Preparing EES..."
+                  : isSelectedUnsynced
+                    ? "Continue as Draft"
+                    : "Continue to Category Review"} <ChevronRight size={14} />
             </motion.button>
           </div>
         </WorkflowActionBar>
@@ -1594,14 +2021,25 @@ const TEMPLATE_OPTIONS: { id: EESTemplate; label: string; desc: string; color: s
   { id: "both", label: "Both", desc: "Generate both Garuda and Citilink EES outputs.", color: "#8B5CF6", bgColor: "rgba(139,92,246,0.08)" },
 ];
 
-function getFleetTemplate(fleet: string): { operator: string; fleet: string; formName: string; formCode: string; revision: string; template: EESTemplate } {
+function getFleetTemplate(
+  fleet: string,
+  templateOverride?: ManualUploadTemplate,
+): { operator: string; fleet: string; formName: string; formCode: string; revision: string; template: EESTemplate } {
   const f = fleet.toLowerCase();
-  if (f.includes("citilink") || f.includes("a320") || f.includes("a320neo")) {
+  const forceGaruda = templateOverride === "garuda";
+  const forceCitilink = templateOverride === "citilink";
+
+  if (!forceGaruda && (forceCitilink || f.includes("citilink") || f.includes("a320") || f.includes("a320neo"))) {
     const isNeo = f.includes("neo");
-    return { operator: "Citilink", fleet: isNeo ? "A320neo" : "A320", formName: `Citilink ${isNeo ? "A320neo" : "A320"} Engineering Evaluation Sheet`, formCode: isNeo ? "CT-3-18.1" : "CT-3", revision: "Current", template: "citilink" };
+    if (f.includes("a320")) {
+      return { operator: "Citilink", fleet: isNeo ? "A320neo" : "A320", formName: `Citilink ${isNeo ? "A320neo" : "A320"} Engineering Evaluation Sheet`, formCode: isNeo ? "CT-3-18.1" : "CT-3", revision: "Current", template: "citilink" };
+    }
   }
-  if (f.includes("atr72") || f.includes("atr 72")) {
+  if (!forceGaruda && (f.includes("atr72") || f.includes("atr 72"))) {
     return { operator: "Citilink", fleet: "ATR72", formName: "Citilink ATR72 Engineering Evaluation Sheet", formCode: "CT-3-ATR", revision: "Current", template: "citilink" };
+  }
+  if (forceCitilink || (!forceGaruda && f.includes("citilink"))) {
+    return { operator: "Citilink", fleet: fleet || "Unknown", formName: "Citilink Engineering Evaluation Sheet", formCode: "CT-3", revision: "Current", template: "citilink" };
   }
   if (f.includes("b737 max") || f.includes("737 max")) return { operator: "Garuda Indonesia", fleet: "B737 MAX", formName: "Garuda B737 MAX Engineering Evaluation Sheet", formCode: "GA-EES-MAX", revision: "Rev.3", template: "garuda" };
   if (f.includes("b737") || f.includes("737 ng") || f.includes("737ng")) return { operator: "Garuda Indonesia", fleet: "B737 NG", formName: "Garuda B737 NG Engineering Evaluation Sheet", formCode: "GA-EES-NG", revision: "Rev.5", template: "garuda" };
@@ -1769,7 +2207,7 @@ type CitilinkOptionsData = {
 const DEFAULT_CITILINK: CitilinkOptionsData = {
   unitConcern: ["TEA-2"],
   partClassification: [],
-  reasonOfEvaluation: ["Safety", "To Comply With Government / Authority Regulatory Requirement"],
+  reasonOfEvaluation: [...CITILINK_DEFAULT_REASON_OF_EVALUATION],
   maintenanceLevel: [],
   maintenanceDate: "",
   warranty: "",
@@ -1777,7 +2215,7 @@ const DEFAULT_CITILINK: CitilinkOptionsData = {
   warrantyDueDate: "",
   warrantyNote: "",
   consequence: "",
-  accomplishmentMethod: ["Inspection"],
+  accomplishmentMethod: [],
   inspectionType: ["One Time"],
   engineeringAction: [],
   furtherImpl: [],
@@ -1790,7 +2228,7 @@ function getCitilinkReadiness(d: CitilinkOptionsData): [boolean, string][] {
     [d.partClassification.length > 0, "Part classification selected"],
     [d.reasonOfEvaluation.length > 0, "Reason of Evaluation completed"],
     [d.maintenanceLevel.length > 0, "Maintenance Level selected"],
-    [!!d.consequence, "Consequence selected"],
+    [consequenceFromEngineeringAction(d.engineeringAction).length > 0, "Consequence derived from Engineering Action"],
     [d.accomplishmentMethod.length > 0, "Accomplishment Method completed"],
     [d.inspectionType.length > 0, "Inspection Type completed"],
     [d.engineeringAction.length > 0, "Engineering Action selected"],
@@ -1807,6 +2245,7 @@ function CitilinkOptionsForm({ data, onChange }: { data: CitilinkOptionsData; on
 
   const inputCls = "w-full px-3 py-2 rounded-lg text-xs text-foreground outline-none";
   const inputStyle = { border: "1px solid rgba(2,66,219,0.2)", background: "rgba(2,66,219,0.03)" };
+  const automaticConsequence = consequenceFromEngineeringAction(data.engineeringAction)[0] || "";
 
   return (
     <div className="space-y-3">
@@ -1830,9 +2269,9 @@ function CitilinkOptionsForm({ data, onChange }: { data: CitilinkOptionsData; on
       {/* 2. Part classification */}
       <CSection title="2. Part Classification">
         <div className="flex flex-wrap gap-4">
-          {["Component","Tool and Equipment","Part"].map(opt => (
+          {CITILINK_COMPONENT_TYPES.map(opt => (
             <CBox key={opt} checked={data.partClassification.includes(opt)}
-              onChange={() => set("partClassification", toggleArr(data.partClassification, opt))} label={opt} />
+              onChange={() => set("partClassification", data.partClassification.includes(opt) ? [] : [opt])} label={opt} />
           ))}
         </div>
       </CSection>
@@ -1840,13 +2279,11 @@ function CitilinkOptionsForm({ data, onChange }: { data: CitilinkOptionsData; on
       {/* 3. Reason of Evaluation */}
       <CSection title="3. Reason of Evaluation">
         <div className="grid grid-cols-2 gap-y-2 gap-x-3">
-          {["Affects A/C Operation","Pax or Crew Satisfaction","Improve Maintainability","To Meet Company Policy",
-            "Improve A/C Performance","Improve Reliability","Safety",
-            "To Comply With Government / Authority Regulatory Requirement"].map(r => (
+          {CITILINK_REASON_OPTIONS.map(r => (
             <CBox key={r} checked={data.reasonOfEvaluation.includes(r)}
               onChange={() => set("reasonOfEvaluation", toggleArr(data.reasonOfEvaluation, r))}
               label={r}
-              ai={r === "Safety" || r === "To Comply With Government / Authority Regulatory Requirement"} />
+              ai={r === "To Comply with Government/ Authority Regulatory Requirement."} />
           ))}
         </div>
       </CSection>
@@ -1854,10 +2291,9 @@ function CitilinkOptionsForm({ data, onChange }: { data: CitilinkOptionsData; on
       {/* 4. Maintenance Level */}
       <CSection title="4. Maintenance Level">
         <div className="space-y-2">
-          {["To be performed prior to certain date", "To be performed prior to certain hours/cycles",
-            "To be performed at next maint. Scheduled", "To be performed at attrition basis"].map(label => (
+          {CITILINK_MAINTENANCE_OPTIONS.map(label => (
             <CBox key={label} checked={data.maintenanceLevel.includes(label)}
-              onChange={() => set("maintenanceLevel", toggleArr(data.maintenanceLevel, label))} label={label} />
+              onChange={() => set("maintenanceLevel", data.maintenanceLevel.includes(label) ? [] : [label])} label={label} />
           ))}
           <div className="pt-1">
             <label className="block text-[9px] font-semibold text-muted-foreground uppercase tracking-wider mb-1">Date</label>
@@ -1892,14 +2328,14 @@ function CitilinkOptionsForm({ data, onChange }: { data: CitilinkOptionsData; on
       <CSection title="6. Consequence">
         <div className="flex gap-3">
           {[["Affected","#F59E0B"],["Not Affected","#10B981"]].map(([opt, col]) => (
-            <button key={opt} onClick={() => set("consequence", opt)}
+            <button key={opt} type="button" disabled
               className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold transition-all"
-              style={data.consequence === opt
+              style={automaticConsequence === opt
                 ? { background: col + "18", border: `2px solid ${col}`, color: col }
                 : { background: "var(--muted)", border: "1px solid var(--border)", color: "var(--muted-foreground)" }}>
               <div className="w-3.5 h-3.5 rounded-full flex items-center justify-center"
-                style={{ background: data.consequence === opt ? col : "transparent", border: data.consequence === opt ? "none" : "1.5px solid var(--border)" }}>
-                {data.consequence === opt && <Check size={8} color="white" />}
+                style={{ background: automaticConsequence === opt ? col : "transparent", border: automaticConsequence === opt ? "none" : "1.5px solid var(--border)" }}>
+                {automaticConsequence === opt && <Check size={8} color="white" />}
               </div>
               {opt}
             </button>
@@ -1910,17 +2346,21 @@ function CitilinkOptionsForm({ data, onChange }: { data: CitilinkOptionsData; on
       {/* 7. Accomplishment Method */}
       <CSection title="7. Accomplishment Method">
         <div className="flex flex-wrap gap-4 mb-2">
-          {["Modification","Inspection","Other"].map(m => (
+          {CITILINK_ACCOMPLISHMENT_METHODS.map(m => (
             <CBox key={m} checked={data.accomplishmentMethod.includes(m)}
-              onChange={() => set("accomplishmentMethod", toggleArr(data.accomplishmentMethod, m))} label={m} />
+              onChange={() => set("accomplishmentMethod", data.accomplishmentMethod.includes(m) ? [] : [m])} label={m} />
           ))}
         </div>
       </CSection>
 
       {/* 8. Inspection Type */}
       <CSection title="8. Inspection Type">
-        <CBox checked={data.inspectionType.includes("One Time")}
-          onChange={() => set("inspectionType", toggleArr(data.inspectionType, "One Time"))} label="One Time" />
+        <div className="flex gap-4">
+          {CITILINK_INSPECTION_TYPES.map(label => (
+            <CBox key={label} checked={data.inspectionType.includes(label)}
+              onChange={() => set("inspectionType", [label])} label={label} />
+          ))}
+        </div>
       </CSection>
 
       {/* 9. Engineering Action */}
@@ -1928,7 +2368,14 @@ function CitilinkOptionsForm({ data, onChange }: { data: CitilinkOptionsData; on
         <div className="flex gap-4 mb-2">
           {(["Yes","No","Hold/Postpone"] as const).map(a => (
             <CBox key={a} checked={data.engineeringAction.includes(a)}
-              onChange={() => set("engineeringAction", toggleArr(data.engineeringAction, a))} label={a} />
+              onChange={() => {
+                const engineeringAction = data.engineeringAction.includes(a) ? [] : [a];
+                onChange({
+                  ...data,
+                  engineeringAction,
+                  consequence: consequenceFromEngineeringAction(engineeringAction)[0] || "",
+                });
+              }} label={a} />
           ))}
         </div>
       </CSection>
@@ -1936,7 +2383,7 @@ function CitilinkOptionsForm({ data, onChange }: { data: CitilinkOptionsData; on
       {/* 10. Further Implementation */}
       <CSection title="10. Further Implementation">
         <div className="space-y-2">
-          {["Engineering Order", "Manual Revision", "Engineering Information", "Other", "M.S. Revision"].map(label => (
+          {CITILINK_FURTHER_IMPLEMENTATION.map(label => (
             <div key={label}>
               <CBox checked={data.furtherImpl.includes(label)}
                 onChange={() => set("furtherImpl", toggleArr(data.furtherImpl, label))} label={label} />
@@ -1998,13 +2445,22 @@ function Step2SelectCategory({
   const isUnsyncedSB: boolean = !!data.isUnsyncedSB;
 
   const engine = sb ? sb.engineType : engMap[fleet] || "";
-  const airline = getAirline(fleet);
-  const fleetTpl = getFleetTemplate(fleet);
+  const backendTemplate = normalizeManualUploadTemplate(sb?.eesTemplate) || undefined;
+  const [selectedTemplate, setSelectedTemplate] = useState<ManualUploadTemplate | undefined>(
+    normalizeManualUploadTemplate(data.eesTemplate) || backendTemplate,
+  );
+  const airline = selectedTemplate === "citilink"
+    ? "Citilink"
+    : selectedTemplate === "garuda"
+      ? "Garuda Indonesia"
+      : getAirline(fleet);
+  const fleetTpl = getFleetTemplate(fleet, selectedTemplate);
   const eesNumber = isUnsyncedSB ? "" : (data.tdr || "—");
 
   const categorySystem = getCategorySystem(sb);
   const isGEMode = categorySystem === "GE";
-  const aiCategory = sb?.sbCategory ? `Category ${sb.sbCategory}` : "—";
+  const complianceCategory = getComplianceCategory(sb);
+  const aiCategory = complianceCategory ? `Category ${complianceCategory}` : "—";
   const backendGECategory = getGECategory(aiCategory);
   const backendGEImpact = getGEImpact(sb?.impactType ? `Impact ${sb.impactType.replace(/^Impact\s*/i, "")}` : undefined);
   const geCategory = backendGECategory ?? {
@@ -2021,12 +2477,10 @@ function Step2SelectCategory({
     description: "",
     severity: "info" as const,
   };
-  const aiConfidence = sb?.isPresentationDummy
-    ? sb.aiConfidence ?? null
-    : null;
+  const aiConfidence = sb?.aiConfidence ?? null;
   const assignedCategory = isGEMode ? geCategory.level : aiCategory;
   const requiresManualEES = isCategoryManual(assignedCategory);
-  const hasExtractedAI = sb?.ocrStatus === "EXTRACTED" && Boolean(sb?.sbCategory);
+  const hasExtractedAI = sb?.ocrStatus === "EXTRACTED" && Boolean(complianceCategory);
   const extractedRemarks = (sb?.extractedItems || [])
     .map(item => item.remarks)
     .filter(Boolean)
@@ -2051,27 +2505,103 @@ function Step2SelectCategory({
   const [manualDraft, setManualDraft] = useState<Record<string, unknown>>(
     data.manualDraft || {},
   );
+  const [savingAiReview, setSavingAiReview] = useState(false);
+  const [refreshedCitilinkContext, setRefreshedCitilinkContext] = useState<{
+    backendId: string;
+    aiSummary?: unknown;
+    document?: ServiceBulletinEesDocument | null;
+  } | null>(null);
+  const [refreshingCitilinkContext, setRefreshingCitilinkContext] = useState(false);
+  const citilinkContextRequestRef = useRef(0);
+
+  const generatedEesDocument = data.generatedEesDocument as
+    | ServiceBulletinEesDocument
+    | null
+    | undefined;
+  const currentCitilinkContext = refreshedCitilinkContext?.backendId === sb?.backendId
+    ? refreshedCitilinkContext
+    : null;
+  const activeGeneratedEesDocument = currentCitilinkContext?.document ?? generatedEesDocument;
+  const activeAiSummary = currentCitilinkContext?.aiSummary ?? data.aiSummary;
+
+  // Manual Citilink fields include checkbox values from /ai-summary and the
+  // latest persisted EES values. Re-fetching here prevents an old workflow
+  // snapshot from being treated as an empty manual form.
+  useEffect(() => {
+    if (
+      !requiresManualEES
+      || selectedTemplate !== "citilink"
+      || !sb?.backendId
+      || sb.isPresentationDummy
+    ) {
+      return;
+    }
+
+    const backendId = sb.backendId;
+    const requestId = citilinkContextRequestRef.current + 1;
+    citilinkContextRequestRef.current = requestId;
+    let disposed = false;
+
+    const refreshCitilinkContext = async () => {
+      setRefreshingCitilinkContext(true);
+      const [summaryResult, eesResult] = await Promise.allSettled([
+        getServiceBulletinAiSummary(backendId),
+        getServiceBulletinEes(backendId),
+      ]);
+
+      if (disposed || citilinkContextRequestRef.current !== requestId) return;
+
+      setRefreshedCitilinkContext({
+        backendId,
+        aiSummary: summaryResult.status === "fulfilled" ? summaryResult.value : data.aiSummary,
+        document: eesResult.status === "fulfilled" && eesResult.value.status === "available"
+          ? eesResult.value.data
+          : generatedEesDocument,
+      });
+      setRefreshingCitilinkContext(false);
+    };
+
+    void refreshCitilinkContext();
+    return () => {
+      disposed = true;
+    };
+  }, [data.aiSummary, generatedEesDocument, requiresManualEES, sb?.backendId, sb?.isPresentationDummy, selectedTemplate]);
+
+  const generatedEvaluations = activeGeneratedEesDocument?.evaluations?.length
+    ? activeGeneratedEesDocument.evaluations
+    : sb?.evaluations || [];
+  const generatedReferences = activeGeneratedEesDocument
+    ? Array.isArray(activeGeneratedEesDocument.references)
+      ? activeGeneratedEesDocument.references.map(reference => reference.trim()).filter(Boolean)
+      : activeGeneratedEesDocument.references
+        ? [activeGeneratedEesDocument.references.trim()].filter(Boolean)
+        : sb?.references || []
+    : sb?.references || [];
+  const generatedApplicable = getEvaluationApplicable(
+    generatedEvaluations,
+    sb?.isPresentationDummy ? "Yes" : "-",
+  );
+  const generatedRep = getEvaluationRep(
+    activeGeneratedEesDocument,
+    generatedEvaluations,
+    sb?.rep || "-",
+  );
 
   const eesData = {
-    evaluations: sb?.evaluations,
     selectedSB: sb,
+    generatedEesDocument: activeGeneratedEesDocument,
+    aiSummary: activeAiSummary,
     relationshipStatus: sb?.relationshipStatus,
     eesNumber,
     bulletinNumber: sb ? sb.id : "—",
     bulletinRevision: sb?.revision || "-",
-    taskType: sb?.taskType || "-",
-    applicable: "-",
-    rep: sb?.rep || "-",
-    dueAt: sb?.compliance || "-",
-    warranty: sb?.warranty || "",
     ADRelated: "-",
     engine: sb?.affectedESNs || [],
     affectedESNs: sb?.affectedESNs || [],
     affectedPartNumbers: sb?.affectedPartNumbers || [],
+    affectedModels: parseListEntries(sb?.engine),
     affectedEngines: sb?.affectedEngine || "",
-    references: sb?.references || [],
-    referencesRaw: (sb?.references || []).join("; "),
-    dueCompliance: sb?.compliance || "",
+    note: activeGeneratedEesDocument?.note || "",
     preparedBy: sb?.createdBy || "",
     evaluationDate: sb?.issuedDate || "",
     fleet,
@@ -2094,41 +2624,58 @@ function Step2SelectCategory({
     isManualCategory: requiresManualEES,
     aiSuggestedCategory: aiCategory,
     aiConfidence,
-    categorySource: "AI Assigned",
-    eesTemplate: fleetTpl.template,
+    eesTemplate: selectedTemplate,
     fleetTemplate: fleetTpl,
     citilinkOptions: presentationSB?.citilinkOptions,
+    ...(!requiresManualEES ? {
+      evaluations: generatedEvaluations,
+      taskType: sb?.taskType || "-",
+      applicable: generatedApplicable,
+      rep: generatedRep,
+      dueAt: sb?.compliance || "-",
+      warranty: sb?.warranty || "",
+      references: generatedReferences,
+      referencesRaw: generatedReferences.join("; "),
+      dueCompliance: sb?.compliance || "",
+      categorySource: "AI Assigned",
+    } : {}),
     ...(requiresManualEES ? {
       effectivitySB: sb?.isPresentationDummy ? sb.engineType : "",
-      taskType: sb?.isPresentationDummy ? sb.taskType : "",
-      applicable: sb?.isPresentationDummy ? "Yes" : "",
-      rep: sb?.isPresentationDummy ? (sb.rep || "N/A") : "",
+      taskType: sb?.isPresentationDummy
+        ? sb.taskType
+        : activeGeneratedEesDocument?.taskType || sb?.taskType || "",
+      applicable: sb?.isPresentationDummy ? "Yes" : generatedApplicable,
+      rep: sb?.isPresentationDummy ? (sb.rep || "N/A") : generatedRep,
       dueAt: sb?.isPresentationDummy ? sb.compliance : "",
       warranty: sb?.isPresentationDummy ? (sb.warranty || "N/A") : "",
       description: sb?.isPresentationDummy
         ? sb.evaluations.map(item => item.requirementDesc).filter(Boolean).join("\n\n")
-        : "",
-      subject: sb?.isPresentationDummy ? sb.title : "",
-      references: sb?.isPresentationDummy ? sb.references : [],
-      referencesRaw: sb?.isPresentationDummy ? sb.references.join(", ") : "",
+        : extractedDescription,
+      ...(sb?.title ? { subject: sb.title } : {}),
+      references: sb?.isPresentationDummy ? sb.references : generatedReferences,
+      referencesRaw: sb?.isPresentationDummy
+        ? sb.references.join(", ")
+        : generatedReferences.join("; "),
       dueCompliance: sb?.isPresentationDummy ? sb.compliance : "",
       remarks: sb?.isPresentationDummy
         ? sb.evaluations.map(item => item.remarks).filter(Boolean).join("\n\n")
-        : "",
-      evaluations: sb?.isPresentationDummy ? sb.evaluations : [],
-      eesIssuedDate: sb?.isPresentationDummy ? sb.issuedDate : "",
-      unitConcern: sb?.isPresentationDummy ? ["TEA-2"] : [],
-      bulletinType: sb?.isPresentationDummy ? "Service Bulletin" : "",
-      aircraftType: sb?.isPresentationDummy ? fleet : "",
+        : remarks || extractedRemarks,
+      evaluations: sb?.isPresentationDummy ? sb.evaluations : generatedEvaluations,
+      ...(sb?.issuedDate ? { eesIssuedDate: sb.issuedDate.slice(0, 10) } : {}),
+      bulletinType: "Service Bulletin",
+      ...(fleet ? { aircraftType: fleet } : {}),
       effectivity: sb?.isPresentationDummy ? sb.affectedEngine : "",
-      reasonOfEvaluation: sb?.isPresentationDummy
-        ? "Evaluate fleet applicability, compliance impact, and implementation requirements."
-        : "",
-      evaluationResult: sb?.isPresentationDummy
-        ? sb.evaluations.map(item => item.remarks).filter(Boolean).join("\n\n")
-        : "",
-      engineeringAction: sb?.isPresentationDummy ? "Yes" : "",
-      managementApproval: sb?.isPresentationDummy ? ["TEA"] : [],
+      ...(sb?.isPresentationDummy ? {
+        unitConcern: ["TEA-2"],
+        reasonOfEvaluation: "Evaluate fleet applicability, compliance impact, and implementation requirements.",
+        evaluationResult: sb.evaluations.map(item => item.remarks).filter(Boolean).join("\n\n"),
+        engineeringAction: "Yes",
+        managementApproval: ["TEA"],
+      } : {
+        ...((remarks || extractedRemarks)
+          ? { evaluationResult: remarks || extractedRemarks }
+          : {}),
+      }),
       ...(presentationSB?.citilinkOptions ?? {}),
       categorySource: "AI Classified — Manual EES Required",
     } : {}),
@@ -2136,12 +2683,19 @@ function Step2SelectCategory({
     ...manualDraft,
   };
 
-  const handleManualDraftChange = (field: string, value: string) => {
-    if (field === "remarks") {
+  const handleManualDraftChange = (field: string, value: string | string[] | boolean) => {
+    if (field === "remarks" && typeof value === "string") {
       setRemarks(value);
       return;
     }
     setManualDraft(previous => {
+      if (typeof value === "boolean") {
+        return { ...previous, [field]: value };
+      }
+      if (Array.isArray(value)) {
+        return { ...previous, [field]: value };
+      }
+
       const evaluationUpdate = updateEvaluationDraft(
         previous,
         requiresManualEES ? undefined : sb?.evaluations,
@@ -2165,11 +2719,82 @@ function Step2SelectCategory({
   const missingCitilinkFields = isCitilinkTemplate
     ? getMissingCitilinkRequiredFields(eesData, { allowEmptyEesNumber: isUnsyncedSB })
     : [];
-  const manualFormComplete = !requiresManualEES || (
-    isCitilinkTemplate
-      ? missingCitilinkFields.length === 0
-      : Boolean(eesData.warranty && eesData.applicable && eesData.rep && eesData.taskType)
+  const citilinkFieldTargets: Record<string, string> = {
+    "EES No.": "eesNumber",
+    "EES Issued Date": "eesIssuedDate",
+    "Unit Concern": "unitConcern",
+    "Bulletin No.": "bulletinNumber",
+    "Bull Type": "bulletinType",
+    Subject: "subject",
+    "Aircraft Type": "aircraftType",
+    "Reason of Evaluation": "reasonOfEvaluation",
+    "Evaluation Result": "evaluationResult",
+    "Engineering Action": "engineeringAction",
+    "Further Implementation": "furtherImplementation",
+    "Management Approval": "managementApproval",
+  };
+  const focusCitilinkField = (label: string) => {
+    const target = citilinkFieldTargets[label];
+    if (!target) return;
+    document.getElementById(`ees-field-${target}`)?.scrollIntoView({
+      behavior: "smooth",
+      block: "center",
+    });
+  };
+  const templateSelectionComplete = Boolean(selectedTemplate);
+  const citilinkManualFieldsComplete = !isCitilinkTemplate || (
+    !missingCitilinkFields.includes("Engineering Action")
+    && !missingCitilinkFields.includes("Further Implementation")
   );
+  const manualFormComplete = templateSelectionComplete
+    && citilinkManualFieldsComplete
+    && (!requiresManualEES || (
+      isCitilinkTemplate
+        ? missingCitilinkFields.length === 0
+        : Boolean(eesData.warranty && eesData.applicable && eesData.rep && eesData.taskType)
+  ));
+
+  const handleContinueFromAiReview = async () => {
+    if (!manualFormComplete || savingAiReview) return;
+
+    const nextData = {
+      ...eesData,
+      manualDraft,
+    };
+
+    // Engineering Action and Further Implementation are operator decisions.
+    // Consequence is intentionally excluded because it is supplied by the backend.
+    if (isCitilinkTemplate && !presentationSB) {
+      if (!sb?.backendId) {
+        toast.error("Service Bulletin ID is not available. Citilink review fields could not be saved.");
+        return;
+      }
+
+      setSavingAiReview(true);
+      try {
+        await updateServiceBulletinEes(
+          sb.backendId,
+          createValidatedEesPayload(nextData),
+        );
+        const refreshedEes = await getServiceBulletinEes(sb.backendId);
+        onNext({
+          ...nextData,
+          generatedEesDocument: refreshedEes.status === "available"
+            ? refreshedEes.data
+            : generatedEesDocument,
+          eesPatchedAtAiReview: true,
+        });
+        toast.success("Citilink review fields saved to the EES draft.");
+      } catch {
+        toast.error("Citilink review fields could not be saved. Please try again.");
+      } finally {
+        setSavingAiReview(false);
+      }
+      return;
+    }
+
+    onNext(nextData);
+  };
 
   const handleGenerate = () => {
     setGenerating(true);
@@ -2228,10 +2853,36 @@ function Step2SelectCategory({
         <div className="flex items-center gap-2 mb-3">
           <FileText size={12} style={{ color: "#0242DB" }} />
           <span className="text-xs font-semibold text-foreground">Assigned EES Form</span>
-          <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded font-medium" style={{ background: "rgba(2,66,219,0.08)", color: "#0242DB" }}>Auto-Assigned</span>
+          <span className="ml-auto text-[9px] px-1.5 py-0.5 rounded font-medium" style={{ background: "rgba(2,66,219,0.08)", color: "#0242DB" }}>
+            {selectedTemplate ? "User Selected" : "Selection Required"}
+          </span>
+        </div>
+        <div className="mb-3 grid grid-cols-2 gap-2">
+          {(["garuda", "citilink"] as const).map((template) => {
+            const selected = selectedTemplate === template;
+            const label = template === "citilink" ? "Citilink" : "Garuda";
+            const color = template === "citilink" ? "#059669" : "#0242DB";
+            return (
+              <button
+                key={template}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => setSelectedTemplate(template)}
+                className="flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-[10px] font-semibold transition-colors"
+                style={{
+                  borderColor: selected ? color : "var(--border)",
+                  background: selected ? `${color}12` : "var(--muted)",
+                  color: selected ? color : "var(--muted-foreground)",
+                }}
+              >
+                {selected && <Check size={11} />}
+                {label} Template
+              </button>
+            );
+          })}
         </div>
         <div className="grid grid-cols-2 gap-2 text-xs mb-2">
-          {[["Operator", fleetTpl.operator], ["Fleet", fleetTpl.fleet], ["Form Name", fleetTpl.formName], ["Form Code", fleetTpl.formCode], ["Revision", fleetTpl.revision], ["Source", "Fleet Template Configuration"]].map(([l, v]) => (
+          {[["Operator", selectedTemplate ? fleetTpl.operator : "—"], ["Fleet", fleetTpl.fleet], ["Form Name", selectedTemplate ? fleetTpl.formName : "Select an EES template"], ["Form Code", selectedTemplate ? fleetTpl.formCode : "—"], ["Revision", selectedTemplate ? fleetTpl.revision : "—"], ["Source", backendTemplate && selectedTemplate === backendTemplate ? "Backend Default — User Confirmed" : selectedTemplate ? "Step 2 User Selection" : "Manual Selection Required"]].map(([l, v]) => (
             <div key={l}>
               <div className="text-[9px] text-muted-foreground uppercase tracking-wider mb-0.5">{l}</div>
               <div className="font-semibold text-foreground text-[11px] leading-tight">{v}</div>
@@ -2239,7 +2890,10 @@ function Step2SelectCategory({
           ))}
         </div>
         <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground mt-2 pt-2" style={{ borderTop: "1px solid var(--border)" }}>
-          <Info size={10} style={{ color: "#0242DB" }} /> This form was assigned automatically based on the selected fleet.
+          <Info size={10} style={{ color: "#0242DB" }} />
+          {selectedTemplate
+            ? `The ${selectedTemplate === "citilink" ? "Citilink" : "Garuda"} renderer endpoint will be used to generate, preview, and download the EES PDF.`
+            : "Choose the Garuda or Citilink template before generating the EES."}
         </div>
       </div>
 
@@ -2329,18 +2983,42 @@ function Step2SelectCategory({
               </div>
             </div>
             {!manualFormComplete && (
-              <div className="flex items-center gap-2 rounded-xl border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 text-[10px] font-medium text-amber-600">
-                <AlertTriangle size={12} /> {isCitilinkTemplate
-                  ? `Complete the required Citilink fields: ${missingCitilinkFields.join(", ")}.`
-                  : "Complete Warranty, Applicable, REP, and Task Type before continuing."}
+              <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 text-[10px] font-medium text-amber-600">
+                <AlertTriangle size={12} /> {!templateSelectionComplete
+                  ? "Select the Garuda or Citilink EES template before continuing."
+                  : isCitilinkTemplate
+                    ? (
+                      <>
+                        <span>Complete the required Citilink fields:</span>
+                        {missingCitilinkFields.map(field => (
+                          <button
+                            key={field}
+                            type="button"
+                            onClick={() => focusCitilinkField(field)}
+                            className="rounded-md border border-amber-500/35 bg-background/50 px-1.5 py-0.5 font-semibold text-amber-700 underline-offset-2 hover:underline"
+                          >
+                            {field}
+                          </button>
+                        ))}
+                      </>
+                    )
+                    : "Complete Warranty, Applicable, REP, and Task Type before continuing."}
+                {refreshingCitilinkContext && isCitilinkTemplate && (
+                  <span className="ml-auto inline-flex items-center gap-1 text-amber-700">
+                    <Loader2 size={11} className="animate-spin" /> Refreshing saved Citilink data…
+                  </span>
+                )}
               </div>
             )}
             {isCitilinkTemplate ? (
               <CitilinkEESTemplatePreview
                 ees={eesData}
                 editableFields
+                engineeringActionEditable
+                furtherImplementationEditable
                 onFieldChange={handleManualDraftChange}
                 docViewerOpen={docViewerOpen}
+                invalidFields={missingCitilinkFields}
               />
             ) : (
               <EESTemplatePreview
@@ -2386,10 +3064,20 @@ function Step2SelectCategory({
         )}
         {hasAIContent && (
           isCitilinkTemplate ? (
-            <CitilinkEESTemplatePreview
-              ees={eesData}
-              docViewerOpen={docViewerOpen}
-            />
+            <div className="space-y-3">
+              {!citilinkManualFieldsComplete && (
+                <div className="flex items-center gap-2 rounded-xl border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 text-[10px] font-medium text-amber-600">
+                  <AlertTriangle size={12} /> Complete Engineering Action and Further Implementation before continuing.
+                </div>
+              )}
+              <CitilinkEESTemplatePreview
+                ees={eesData}
+                engineeringActionEditable
+                furtherImplementationEditable
+                onFieldChange={handleManualDraftChange}
+                docViewerOpen={docViewerOpen}
+              />
+            </div>
           ) : (
             <EESTemplatePreview
               ees={eesData}
@@ -2427,10 +3115,14 @@ function Step2SelectCategory({
                 {docViewerOpen ? "Hide SB PDF" : "View SB PDF"}
               </button>
             )}
-            <motion.button whileHover={nextButtonHover} whileTap={nextButtonTap} onClick={() => onNext({ ...eesData, manualDraft })} disabled={!manualFormComplete}
+            <motion.button whileHover={nextButtonHover} whileTap={nextButtonTap} onClick={() => { void handleContinueFromAiReview(); }} disabled={!manualFormComplete || savingAiReview}
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white transition-all hover:scale-[1.02] disabled:opacity-40"
               style={{ background: "linear-gradient(135deg, #0242DB, #00C2FF)", boxShadow: "0 4px 14px rgba(0,194,255,0.3)" }}>
-              {requiresManualEES ? "Continue to Step 3" : "Continue to Applicability"} <ChevronRight size={15} />
+              {savingAiReview ? (
+                <><Loader2 size={15} className="animate-spin" /> Saving Citilink Review…</>
+              ) : (
+                <>{requiresManualEES ? "Continue to Step 3" : "Continue to Applicability"} <ChevronRight size={15} /></>
+              )}
             </motion.button>
           </div>
         </div>
@@ -2439,14 +3131,21 @@ function Step2SelectCategory({
   );
 }
 
-const STATUS_COLORS: Record<string, { bg: string; color: string }> = {
-  Applicable: { bg: "#10B98118", color: "#10B981" },
-  Confirmed: { bg: "#10B98118", color: "#10B981" },
-  Partial: { bg: "#F59E0B18", color: "#F59E0B" },
-  "No Data": { bg: "#6B728018", color: "#6B7280" },
-  Conflict: { bg: "#EF444418", color: "#EF4444" },
-  "Not Applicable": { bg: "#8B5CF618", color: "#8B5CF6" },
-};
+function getApplicabilityDataSources(
+  engine: ServiceBulletinApplicability["engines"][number],
+) {
+  const values = [
+    ...(engine.dataSources ?? []),
+    ...(engine.source ? [engine.source] : []),
+  ]
+    .map((source) => source.trim())
+    .filter(Boolean);
+
+  const uniqueSources = Array.from(new Set(values));
+  if (uniqueSources.length > 0) return uniqueSources;
+
+  return engine.isApplicable ? ["GMF Engine Database"] : [];
+}
 
 function Step3Applicability({
   data,
@@ -2496,6 +3195,16 @@ function Step3Applicability({
       return;
     }
 
+    const generatedDocument = data.generatedEesDocument as
+      | ServiceBulletinEesDocument
+      | null
+      | undefined;
+    if (!generatedDocument) {
+      setIsGeneratingEes(false);
+      toast.error("Generated EES document is not available. Return to Step 1 and try again.");
+      return;
+    }
+
     try {
       const hasEditedEsn = Boolean(
         data.manualDraft
@@ -2506,21 +3215,17 @@ function Step3Applicability({
         ),
       );
 
-      if (data.isManualCategory || hasEditedEsn) {
+      if ((data.isManualCategory || hasEditedEsn) && !data.eesPatchedAtAiReview) {
         await updateServiceBulletinEes(backendId, createValidatedEesPayload(data));
-      } else {
-        await generateServiceBulletinEes(backendId, {
-          aircraftType: data.selectedSB?.fleet || data.fleet || undefined,
-        });
       }
-      const generatedResult = await getServiceBulletinEes(backendId);
-      if (generatedResult.status !== "available") {
-        throw new Error("Generated EES document was not found.");
-      }
-      onNext(applicabilityResult, generatedResult.data);
-      toast.success("EES document generated successfully.");
+
+      // The EES document was prepared in Step 1. Step 4 renders the live PDF
+      // directly from the operator-specific export endpoint, so no metadata
+      // GET /ees is needed during this transition.
+      onNext(applicabilityResult, generatedDocument);
+      toast.success("Opening the selected EES PDF template.");
     } catch {
-      toast.error("EES document could not be generated. Please try again.");
+      toast.error("EES changes could not be prepared for preview. Please try again.");
     } finally {
       setIsGeneratingEes(false);
     }
@@ -2570,7 +3275,7 @@ function Step3Applicability({
         </span>
       </div>
       <p className="text-sm text-muted-foreground mb-4">
-        Every ESN and Part Number/Affected Number listed in the SB is checked against the internal EDS and SVR records.
+        Every engine listed by the Service Bulletin is matched against the GMF engine database. A matching ESN is marked Applicable; an unmatched ESN is marked Not Applicable.
       </p>
 
       {/* SB Timeline & Dependency Summary */}
@@ -2585,7 +3290,7 @@ function Step3Applicability({
       {/* Legend */}
       <div className="flex items-center gap-4 mb-4 px-4 py-2.5 rounded-xl" style={{ background: "var(--muted)", border: "1px solid var(--border)" }}>
         <span className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider">Legend:</span>
-        {[{ color: "#10B981", label: "Applicable" }, { color: "#8B5CF6", label: "Not Applicable" }].map(item => (
+        {[{ color: "#059669", label: "Applicable" }, { color: "#DC2626", label: "Not Applicable" }].map(item => (
           <div key={item.label} className="flex items-center gap-1.5">
             <div className="w-2 h-2 rounded-full" style={{ background: item.color }} />
             <span className="text-[10px] text-muted-foreground">{item.label}</span>
@@ -2596,102 +3301,79 @@ function Step3Applicability({
       {/* Applicability Matrix */}
       <div className="rounded-xl overflow-hidden mb-5" style={{ border: "1px solid var(--border)" }}>
         <div className="px-4 py-2.5 flex items-center justify-between" style={{ background: "linear-gradient(135deg, #0E1B93, #0242DB)" }}>
-          <span className="text-xs font-semibold text-white">Fleet Engine Applicability — {fleet || applicabilityResult.sb.sbNumber}</span>
-          <span className="text-[10px] text-white/60">{applicabilityResult.summary.totalEngines} engines checked</span>
+          <span className="text-xs font-semibold text-white">SB Engine Applicability — {fleet || applicabilityResult.sb.sbNumber}</span>
+          <span className="text-[10px] text-white/70">{applicabilityResult.engines.length} SB engines checked</span>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full text-xs">
+          <table className="w-full min-w-[900px] text-xs">
             <thead>
               <tr style={{ background: "var(--muted)", borderBottom: "1px solid var(--border)" }}>
-                {["Requirement", "Database (IQ03)", "SVR", "EDS", "Status"].map(header => (
+                {["ESN from SB", "Engine / Aircraft", "Position", "Data Source", "Applicability", "Matching Detail"].map(header => (
                   <th key={header} className="px-3 py-2.5 text-left text-[10px] font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
                     {header}
                   </th>
                 ))}
               </tr>
             </thead>
-            {([
-              {
-                requirement: "Engine Serial Number",
-                rows: applicabilityResult.engines.map(engine => ({
-                  id: `esn-${engine.esn}`,
-                  database: engine.esn || "—",
-                  svr: presentationSB
-                    ? engine.isApplicable ? engine.esn : "No matching SVR"
-                    : "—",
-                  eds: presentationSB
-                    ? `${engine.esn}\n${engine.aircraft?.registration || "Fleet record"}`
-                    : "—",
-                  detail: engine.aircraft
-                    ? `${engine.aircraft.registration} · ${engine.aircraft.aircraftType} · MSN ${engine.aircraft.msn || engine.msn || "—"}`
-                    : "Aircraft data unavailable",
-                  status: engine.isApplicable ? "Applicable" : "Not Applicable",
-                  reason: engine.reason,
-                })),
-              },
-              {
-                requirement: "Engine Type",
-                rows: applicabilityResult.engines.map(engine => ({
-                  id: `type-${engine.esn}`,
-                  database: engine.model || "—",
-                  svr: presentationSB
-                    ? engine.isApplicable ? engine.model || "—" : "Configuration differs"
-                    : "—",
-                  eds: presentationSB ? engine.model || "—" : "—",
-                  detail: engine.esn ? `ESN ${engine.esn}` : "—",
-                  status: engine.isApplicable ? "Applicable" : "Not Applicable",
-                  reason: engine.reason,
-                })),
-              },
-              {
-                requirement: "Part Number / Affected Number",
-                rows: (data.selectedSB?.affectedPartNumbers?.length
-                  ? data.selectedSB.affectedPartNumbers
-                  : ["—"]
-                ).map((partNumber: string, index: number) => ({
-                  id: `part-${partNumber}-${index}`,
-                  database: partNumber,
-                  svr: presentationSB
-                    ? index === 0 ? partNumber : "Not installed in SVR"
-                    : "—",
-                  eds: presentationSB ? partNumber : "—",
-                  detail: partNumber === "—" ? "No part number provided by the SB API" : "From Service Bulletin detail",
-                  status: presentationSB
-                    ? index === 0 ? "Applicable" : "Not Applicable"
-                    : "No Data",
-                  reason: presentationSB
-                    ? index === 0
-                      ? "Part number is present in both the SVR configuration and EDS effectivity records."
-                      : "Part number is listed by EDS but is not installed in the latest SVR configuration."
-                    : "Part-number matching is not provided by the applicability API.",
-                })),
-              },
-            ] as const).map(group => (
-              <tbody key={group.requirement}>
-                {group.rows.map((row: { id: string; database: string; svr: string; eds: string; detail: string; status: string; reason: string }, index: number) => {
-                  const statusStyle = STATUS_COLORS[row.status] || STATUS_COLORS["No Data"];
-                  return (
-                    <tr key={row.id} style={{ borderBottom: "1px solid var(--border)", background: index % 2 === 0 ? "var(--card)" : "var(--muted)" }}>
-                      {index === 0 && (
-                        <th rowSpan={group.rows.length} scope="rowgroup" className="w-[22%] border-r border-border bg-blue-600/[0.045] px-4 py-4 text-center align-middle text-[11px] font-bold leading-relaxed text-foreground">
-                          {group.requirement}
-                        </th>
+            <tbody>
+              {applicabilityResult.engines.map((engine, index) => {
+                const dataSources = getApplicabilityDataSources(engine);
+                return (
+                  <tr
+                    key={`${engine.esn}-${engine.position || index}`}
+                    className="border-b border-border last:border-b-0"
+                    style={{ background: index % 2 === 0 ? "var(--card)" : "var(--muted)" }}
+                  >
+                    <td className="px-3 py-3 align-top">
+                      <div className="font-mono text-[11px] font-semibold text-foreground">{engine.esn || "—"}</div>
+                      <div className="mt-1 text-[9px] text-muted-foreground">SB effectivity record</div>
+                    </td>
+                    <td className="px-3 py-3 align-top">
+                      <div className="font-semibold text-foreground">{engine.model || "—"}</div>
+                      <div className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+                        {engine.aircraft
+                          ? `${engine.aircraft.registration} · ${engine.aircraft.aircraftType} · MSN ${engine.aircraft.msn || engine.msn || "—"}`
+                          : "No matching aircraft in GMF database"}
+                      </div>
+                    </td>
+                    <td className="px-3 py-3 align-top text-foreground">{engine.position || "—"}</td>
+                    <td className="px-3 py-3 align-top">
+                      {dataSources.length > 0 ? (
+                        <div className="flex max-w-[220px] flex-wrap gap-1.5">
+                          {dataSources.map((source) => (
+                            <span key={source} className="rounded-md border border-blue-200 bg-blue-700 px-2 py-1 text-[9px] font-semibold text-white">
+                              {source}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-[10px] font-medium text-red-700">No GMF data source</span>
                       )}
-                      <td className="px-3 py-2.5">
-                        <div className="font-mono text-[11px] text-foreground">{row.database}</div>
-                        <div className="mt-0.5 max-w-[220px] text-[9px] leading-relaxed text-muted-foreground">{row.detail}</div>
-                      </td>
-                      <td className="whitespace-pre-line px-3 py-2.5 font-mono text-[10px] text-foreground">{row.svr}</td>
-                      <td className="whitespace-pre-line px-3 py-2.5 font-mono text-[10px] text-foreground">{row.eds}</td>
-                      <td className="px-3 py-2.5">
-                        <span className="whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-medium" style={{ background: statusStyle.bg, color: statusStyle.color }}>{row.status}</span>
-                        <div className="mt-1 max-w-[260px] text-[9px] leading-relaxed text-muted-foreground">{row.reason || "—"}</div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            ))}
+                    </td>
+                    <td className="px-3 py-3 align-top">
+                      <span className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-[10px] font-semibold text-white ${
+                        engine.isApplicable ? "bg-emerald-600" : "bg-red-600"
+                      }`}>
+                        {engine.isApplicable ? <CheckCircle2 size={11} /> : <X size={11} />}
+                        {engine.isApplicable ? "Applicable" : "Not Applicable"}
+                      </span>
+                    </td>
+                    <td className="max-w-[320px] px-3 py-3 align-top text-[10px] leading-relaxed text-muted-foreground">
+                      {engine.reason || (engine.isApplicable
+                        ? "ESN was found in the GMF engine database."
+                        : "ESN was not found in the GMF engine database.")}
+                    </td>
+                  </tr>
+                );
+              })}
+              {applicabilityResult.engines.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-10 text-center text-xs text-muted-foreground">
+                    The Service Bulletin does not contain an engine list to compare with the GMF database.
+                  </td>
+                </tr>
+              )}
+            </tbody>
           </table>
         </div>
       </div>
@@ -2738,7 +3420,7 @@ function Step3Applicability({
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-medium text-white disabled:opacity-40"
               style={{ background: "linear-gradient(135deg, #0242DB, #0E1B93)" }}>
               {isGeneratingEes ? <Loader2 size={14} className="animate-spin" /> : null}
-              {isGeneratingEes ? "Generating EES..." : "Generate EES & View PDF"} <ChevronRight size={15} />
+              {isGeneratingEes ? "Loading EES..." : "Continue & View EES PDF"} <ChevronRight size={15} />
             </motion.button>
           </div>
         </div>
@@ -2770,7 +3452,7 @@ function TabbedEESPreview({ ees, docViewerOpen = false }: { ees: any; docViewerO
 function AICategoryOverridePanel({ ees }: { ees: any }) {
   const aiCat = ees?.aiSuggestedCategory || ees?.eesCategory || "Category 5";
   const currentCat = ees?.eesCategory || aiCat;
-  const fleetTpl = getFleetTemplate(ees?.fleet || "");
+  const fleetTpl = getFleetTemplate(ees?.fleet || "", ees?.eesTemplate);
   const approvalInfo = getApprovalRoute(currentCat);
   const [showOverride, setShowOverride] = useState(false);
   const [overrideReason, setOverrideReason] = useState("");
@@ -2846,37 +3528,73 @@ function mergeGeneratedEesIntoWorkflow(
   const references = Array.isArray(document.references)
     ? document.references.map(value => value.trim()).filter(Boolean)
     : document.references
-      ? document.references.split(/[,;\n]/).map(value => value.trim()).filter(Boolean)
+      ? document.references.split(/[;\n]/).map(value => value.trim()).filter(Boolean)
       : currentEes?.references || [];
   const affectedESNs = document.esn
-    ? document.esn.split(/[,;\n]/).map(value => value.trim()).filter(Boolean)
+    ? parseListEntries(document.esn)
     : currentEes?.affectedESNs || [];
+  const affectedModels = parseListEntries(
+    document.effectedModel || currentEes?.affectedModels || currentEes?.effectivitySB,
+  );
+  const affectedPartNumbers = parseListEntries(
+    document.partNumber || currentEes?.affectedPartNumbers || currentEes?.partNumber,
+  );
 
   return {
     ...currentEes,
     generatedEesDocument: document,
-    eesNumber: currentEes?.isUnsyncedSB ? "" : document.eesNumber,
+    isUnsyncedSB: document.id ? false : Boolean(currentEes?.isUnsyncedSB),
+    eesTemplate: normalizeManualUploadTemplate(currentEes?.eesTemplate)
+      || normalizeManualUploadTemplate(currentEes?.selectedSB?.eesTemplate)
+      || normalizeManualUploadTemplate(document.eesTemplate)
+      || undefined,
+    eesNumber: document.eesNumber || currentEes?.eesNumber || "",
     taskType: document.taskType || firstEvaluation?.taskType || currentEes?.taskType || "",
     references,
     referencesRaw: references.join(", "),
     engineType: document.effectedType || currentEes?.engineType || "",
-    effectivitySB: Array.isArray(document.effectedModel)
-      ? document.effectedModel.join(", ")
-      : document.effectedModel || document.effectedType || currentEes?.effectivitySB || "",
+    affectedModels,
+    effectedModel: serializeListEntries(affectedModels),
+    effectivitySB: serializeListEntries(affectedModels)
+      || document.effectedType
+      || currentEes?.effectivitySB
+      || "",
     fleet: document.aircraftType || currentEes?.fleet || "",
     affectedESNs,
     engine: affectedESNs,
-    affectedEngines: affectedESNs.join(", "),
+    affectedEngines: serializeListEntries(affectedESNs),
+    affectedPartNumbers,
+    partNumber: serializeListEntries(affectedPartNumbers),
     description: evaluations.map(item => item.requirementDesc).filter(Boolean).join("\n\n") || currentEes?.description || "",
     remarks: evaluations.map(item => item.remarks).filter(Boolean).join("\n\n") || currentEes?.remarks || "",
+    note: document.note || currentEes?.note || "",
+    recommendedAction: document.recommendedAction
+      || document.recommended_action
+      || currentEes?.recommendedAction
+      || "",
+    unitConcern: document.unitConcern ?? currentEes?.unitConcern,
+    partClassification: document.partClassification ?? currentEes?.partClassification,
+    reasonOfEvaluation: document.reasonOfEvaluation ?? currentEes?.reasonOfEvaluation,
+    maintenanceLevel: document.maintenanceLevel ?? currentEes?.maintenanceLevel,
+    accomplishmentMethod: document.accomplishmentMethod ?? currentEes?.accomplishmentMethod,
+    engineeringAction: document.engineeringAction ?? currentEes?.engineeringAction,
+    furtherImplementation: document.furtherImplementation ?? currentEes?.furtherImplementation,
+    managementApproval: document.managementApproval ?? currentEes?.managementApproval,
+    evaluationResult: document.evaluationResult
+      ?? document.evaluation_result
+      ?? currentEes?.evaluationResult,
+    warrantyDue: document.warrantyDueDate
+      ?? document.warranty_due_date
+      ?? currentEes?.warrantyDue,
+    warrantyNote: document.warrantyNote
+      ?? document.warranty_note
+      ?? currentEes?.warrantyNote,
     warranty: firstEvaluation?.warranty === null || firstEvaluation?.warranty === undefined
       ? currentEes?.warranty || ""
       : firstEvaluation.warranty ? "Y" : "N",
-    rep: firstEvaluation?.rep || currentEes?.rep || "",
+    rep: getEvaluationRep(document, evaluations, currentEes?.rep || ""),
     dueAt: firstEvaluation?.dueAt || currentEes?.dueAt || "",
-    applicable: firstEvaluation
-      ? firstEvaluation.isApplicable ? "Yes" : "No"
-      : currentEes?.applicable || "",
+    applicable: getEvaluationApplicable(evaluations, currentEes?.applicable || ""),
   };
 }
 
@@ -2910,7 +3628,9 @@ function Step4PreviewOnlyReview({
   );
   const [draftSaved, setDraftSaved] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [isSubmittingApproval, setIsSubmittingApproval] = useState(false);
+  const [approvalSubmitted, setApprovalSubmitted] = useState(
+    Boolean(ees?.approvalSubmitted),
+  );
   const [isFinishingEdit, setIsFinishingEdit] = useState(false);
   const [pdfVersion, setPdfVersion] = useState(0);
   const [hasUnsaved, setHasUnsaved] = useState(false);
@@ -2923,13 +3643,24 @@ function Step4PreviewOnlyReview({
   const [editApplicability, setEditApplicability] = useState(
     requiresManualInput ? (ees?.applicability ?? "") : (ees?.applicability || "ESN: 960367, 892138, 962784, 876434, 962771"),
   );
-  const [editAffectedEngines, setEditAffectedEngines] = useState(
-    serializeEsnEntries(
+  const [editAffectedESNs, setEditAffectedESNs] = useState<string[]>(
+    parseListEntries(
       ees?.affectedEngines
         || ees?.esn
         || ees?.affectedESNs
         || ees?.engine,
     ),
+  );
+  const [editAffectedModels, setEditAffectedModels] = useState<string[]>(
+    parseListEntries(
+      ees?.affectedModels
+        || ees?.effectedModel
+        || ees?.effectivitySB
+        || ees?.engineType,
+    ),
+  );
+  const [editAffectedPartNumbers, setEditAffectedPartNumbers] = useState<string[]>(
+    parseListEntries(ees?.affectedPartNumbers || ees?.partNumber),
   );
   const [editReferences, setEditReferences] = useState(
     Array.isArray(ees?.references)
@@ -2948,8 +3679,24 @@ function Step4PreviewOnlyReview({
   const [editGECategory, setEditGECategory] = useState(ees?.geCategory || "");
   const [editGEImpact, setEditGEImpact] = useState(ees?.geImpact || "");
   const [geOverrideReason, setGEOverrideReason] = useState(ees?.geOverrideAudit?.reason || "");
-  const eesOperator = getAirline(ees?.fleet || "") === "Citilink" ? "citilink" : "garuda";
-  const approvalOperator = eesOperator === "citilink" ? "CITILINK" : "GARUDA";
+  const eesOperator = ees?.eesTemplate === "citilink"
+    ? "citilink"
+    : ees?.eesTemplate === "garuda"
+      ? "garuda"
+      : getAirline(ees?.fleet || "") === "Citilink"
+        ? "citilink"
+        : "garuda";
+  const sourceApprovalOperator = normalizeApprovalOperator(
+    ees?.generatedEesDocument?.serviceBulletin?.operator?.code,
+    ees?.generatedEesDocument?.serviceBulletin?.operator?.name,
+    ees?.selectedSB?.operatorCode,
+    ees?.selectedSB?.operatorName,
+    ees?.selectedSB?.operator,
+    ees?.operatorCode,
+    ees?.operatorName,
+  );
+  const approvalOperator = sourceApprovalOperator
+    ?? (eesOperator === "citilink" ? "CITILINK" : "GARUDA");
   const approvalCategory = String(
     ees?.categorySystem === "GE"
       ? editGECategory || ees?.eesCategory || ""
@@ -2959,10 +3706,26 @@ function Step4PreviewOnlyReview({
     approvalOperator,
     approvalCategory,
   );
-  const eligibleApprovers = getPresentationApprovers(
+  const presentationSB = ees?.selectedSB?.isPresentationDummy
+    ? ees.selectedSB as EESPresentationServiceBulletin
+    : null;
+  const presentationApprovers = getPresentationApprovers(
     approvalOperator,
     approvalTargetRole,
-  );
+  ).map(approver => ({ ...approver, id: String(approver.id) }));
+  const [backendApprovers, setBackendApprovers] = useState<ApprovalCandidate[]>([]);
+  const [approversLoading, setApproversLoading] = useState(!presentationSB);
+  const [approversError, setApproversError] = useState<string | null>(null);
+  const eligibleApprovers = (presentationSB
+    ? presentationApprovers
+    : backendApprovers
+  ).filter(approver => (
+    normalizeApprovalOperator(
+      typeof approver.operator === "string" ? approver.operator : approver.operator.code,
+      typeof approver.operator === "string" ? undefined : approver.operator.name,
+    )
+    === approvalOperator
+  ));
   const [selectedApproverId, setSelectedApproverId] = useState(
     String(ees?.approvalAssigneeId || ""),
   );
@@ -2974,6 +3737,45 @@ function Step4PreviewOnlyReview({
   const selectedApprover = eligibleApprovers.find(
     approver => String(approver.id) === selectedApproverId,
   ) ?? null;
+
+  useEffect(() => {
+    if (presentationSB) return;
+
+    const controller = new AbortController();
+    const role = approvalTargetRole === "SECOND_ENGINEER"
+      ? "ENGINEER"
+      : "MANAGER";
+
+    void Promise.resolve().then(async () => {
+      if (controller.signal.aborted) return;
+      setApproversLoading(true);
+      setApproversError(null);
+
+      try {
+        const candidates = await getApprovalCandidates(
+          approvalOperator,
+          role,
+          controller.signal,
+        );
+        if (controller.signal.aborted) return;
+        setBackendApprovers(candidates);
+        setSelectedApproverId(currentId => (
+          candidates.some(candidate => candidate.id === currentId)
+            ? currentId
+            : ""
+        ));
+      } catch {
+        if (!controller.signal.aborted) {
+          setBackendApprovers([]);
+          setApproversError("Approval recipients could not be loaded.");
+        }
+      } finally {
+        if (!controller.signal.aborted) setApproversLoading(false);
+      }
+    });
+
+    return () => controller.abort();
+  }, [approvalOperator, approvalTargetRole, presentationSB]);
   const selectedGECategoryData = getGECategory(editGECategory);
   const selectedGEImpactData = getGEImpact(editGEImpact);
   const hasGEOverride = isGEClassification && (
@@ -2993,7 +3795,13 @@ function Step4PreviewOnlyReview({
   const currentEES = {
     ...ees,
     applicability: editApplicability,
-    affectedEngines: editAffectedEngines,
+    affectedESNs: editAffectedESNs,
+    affectedEngines: serializeListEntries(editAffectedESNs),
+    affectedModels: editAffectedModels,
+    effectedModel: serializeListEntries(editAffectedModels),
+    effectivitySB: serializeListEntries(editAffectedModels),
+    affectedPartNumbers: editAffectedPartNumbers,
+    partNumber: serializeListEntries(editAffectedPartNumbers),
     referencesRaw: editReferences,
     references: editReferences.split(",").map((reference: string) => reference.trim()).filter(Boolean),
     dueCompliance: editDueCompliance,
@@ -3015,8 +3823,22 @@ function Step4PreviewOnlyReview({
     creatorSignatureFile: signatureFile || ees?.creatorSignatureFile,
   };
 
+  const approvalEesId = String(
+    currentEES.generatedEesDocument?.id
+    || currentEES.eesDocumentId
+    || currentEES.eesId
+    || "",
+  ).trim();
+  const hasBackendApprovalDocument = Boolean(
+    approvalEesId
+    && ees?.selectedSB?.backendId
+    && !presentationSB,
+  );
+  const isLocalOnlyDraft = Boolean(
+    ees?.isUnsyncedSB && !hasBackendApprovalDocument,
+  );
   const missingRequiredFields = eesOperator === "citilink"
-    ? getMissingCitilinkRequiredFields(currentEES, { allowEmptyEesNumber: Boolean(ees?.isUnsyncedSB) })
+    ? getMissingCitilinkRequiredFields(currentEES, { allowEmptyEesNumber: isLocalOnlyDraft })
     : [];
   const requiredFilled = missingRequiredFields.length === 0;
   const manualSelectionsComplete = !requiresManualInput || eesOperator === "citilink" || !!(
@@ -3026,14 +3848,11 @@ function Step4PreviewOnlyReview({
   const priorityRemarksComplete = !isHighPriorityGE || !!editRemarks.trim();
   const overrideReasonComplete = !hasGEOverride || !!geOverrideReason.trim();
   const contentCanSubmit = !!requiredFilled && manualSelectionsComplete && geClassificationComplete && priorityRemarksComplete && overrideReasonComplete;
-  const signatureRequired = eesOperator === "garuda";
+  const signatureRequired = approvalOperator === "GARUDA";
   const approvalRoutingComplete = Boolean(selectedApprover)
     && (!signatureRequired || Boolean(signatureFile || ees?.creatorSignatureName));
   const canSubmit = contentCanSubmit && approvalRoutingComplete;
   const backendId = ees?.selectedSB?.backendId as string | undefined;
-  const presentationSB = ees?.selectedSB?.isPresentationDummy
-    ? ees.selectedSB as EESPresentationServiceBulletin
-    : null;
   const generatedPdfUrl = backendId
     ? `${getEesPdfUrl(backendId, eesOperator, "view")}?v=${pdfVersion}`
     : "";
@@ -3052,8 +3871,15 @@ function Step4PreviewOnlyReview({
     toast.warning("Manual edit mode enabled. This action has been added to the EES audit log.");
   };
 
-  const handleManualFieldChange = (field: string, value: string) => {
+  const handleManualFieldChange = (field: string, value: string | string[] | boolean) => {
     setManualOverrides(previous => {
+      if (typeof value === "boolean") {
+        return { ...previous, [field]: value };
+      }
+      if (Array.isArray(value)) {
+        return { ...previous, [field]: value };
+      }
+
       const evaluationUpdate = updateEvaluationDraft(
         previous,
         currentEES.evaluations as ServiceBulletinEesEvaluation[] | undefined,
@@ -3073,37 +3899,101 @@ function Step4PreviewOnlyReview({
       return { ...previous, [field]: value };
     });
 
-    if (field === "applicability") setEditApplicability(value);
-    if (field === "affectedEngines") setEditAffectedEngines(value);
-    if (field === "references") setEditReferences(value);
-    if (field === "dueCompliance") setEditDueCompliance(value);
-    if (field === "remarks") setEditRemarks(value);
+    if (field === "affectedESNs" && Array.isArray(value)) setEditAffectedESNs(value);
+    if (field === "affectedModels" && Array.isArray(value)) setEditAffectedModels(value);
+    if (field === "affectedPartNumbers" && Array.isArray(value)) setEditAffectedPartNumbers(value);
+    if (field === "applicability" && typeof value === "string") setEditApplicability(value);
+    if (field === "references" && typeof value === "string") setEditReferences(value);
+    if (field === "dueCompliance" && typeof value === "string") setEditDueCompliance(value);
+    if (field === "remarks" && typeof value === "string") setEditRemarks(value);
     markUnsaved();
   };
 
-  const handleSaveDraft = () => {
-    setSaving(true);
-    setTimeout(() => {
-      const geOverrideAudit = hasGEOverride ? {
-        event: "GE classification overridden by engineer",
-        editedBy: "Ahmad Fikri Ramadhan",
-        editedAt: formatDateTime(new Date()),
-        fromCategory: ees?.aiSuggestedGECategory || ees?.geCategory,
-        toCategory: editGECategory,
-        fromImpact: ees?.aiSuggestedGEImpact || ees?.geImpact,
-        toImpact: editGEImpact,
-        reason: geOverrideReason.trim(),
-      } : ees?.geOverrideAudit;
+  const handleSaveDraft = async () => {
+    if (saving) return;
 
-      setSaving(false);
+    const geOverrideAudit = hasGEOverride ? {
+      event: "GE classification overridden by engineer",
+      editedBy: "Ahmad Fikri Ramadhan",
+      editedAt: formatDateTime(new Date()),
+      fromCategory: ees?.aiSuggestedGECategory || ees?.geCategory,
+      toCategory: editGECategory,
+      fromImpact: ees?.aiSuggestedGEImpact || ees?.geImpact,
+      toImpact: editGEImpact,
+      reason: geOverrideReason.trim(),
+    } : ees?.geOverrideAudit;
+    const updatedEes = {
+      ...currentEES,
+      geOverrideAudit,
+      isUnsyncedSB: isLocalOnlyDraft,
+    };
+
+    if (presentationSB || isLocalOnlyDraft) {
+      onSaveData(updatedEes, attachments);
       setDraftSaved(true);
       setHasUnsaved(false);
-      onSaveData({ ...currentEES, geOverrideAudit }, attachments);
-    }, 1200);
+      toast.success("Draft saved locally.");
+      return;
+    }
+
+    if (approvalSubmitted) {
+      onSaveData(updatedEes, attachments);
+      setDraftSaved(true);
+      setHasUnsaved(false);
+      toast.success("Draft changes saved. The approval request is already active.");
+      return;
+    }
+
+    if (!contentCanSubmit) {
+      toast.error(
+        `Complete the required EES fields before saving: ${missingRequiredFields.join(", ") || "manual review fields"}.`,
+      );
+      return;
+    }
+
+    if (!selectedApprover) {
+      toast.error("Select a Second Engineer or Manager before saving the draft.");
+      return;
+    }
+
+    if (signatureRequired && !signatureFile && !ees?.creatorSignatureName) {
+      toast.error("Upload the creator signature before saving this Garuda EES.");
+      return;
+    }
+
+    if (!approvalEesId) {
+      toast.error("EES document ID is not available.");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      await submitEesForApproval({
+        eesId: approvalEesId,
+        assignedToId: String(selectedApprover.id),
+        signature: signatureFile ?? undefined,
+      });
+      onSaveData({ ...updatedEes, approvalSubmitted: true }, attachments);
+      setApprovalSubmitted(true);
+      setDraftSaved(true);
+      setHasUnsaved(false);
+      toast.success(`Draft saved and forwarded to ${selectedApprover.name} for approval.`);
+    } catch (caughtError: unknown) {
+      const payload = axios.isAxiosError<{ message?: string; error?: string }>(caughtError)
+        ? caughtError.response?.data
+        : null;
+      toast.error(
+        payload?.message
+        || payload?.error
+        || "Draft could not be submitted for approval. Please try again.",
+      );
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleContinueToApproval = async () => {
-    if (!canSubmit || isSubmittingApproval) return;
+    if (!canSubmit) return;
 
     onSaveData(currentEES, attachments);
 
@@ -3128,7 +4018,7 @@ function Step4PreviewOnlyReview({
         creatorName: "Ahmad Fikri Ramadhan",
         createdAt: new Date().toISOString(),
         reviewerTarget: approvalTargetRole,
-        assignedToId: selectedApprover.id,
+        assignedToId: Number(selectedApprover.id),
         assignedToName: selectedApprover.name,
         assignedToRole: selectedApprover.role,
         assignedToUnit: selectedApprover.unit,
@@ -3139,39 +4029,12 @@ function Step4PreviewOnlyReview({
       return;
     }
 
-    if (ees?.isUnsyncedSB) {
+    if (isLocalOnlyDraft) {
       onNext();
       return;
     }
 
-    const eesId = String(
-      currentEES.generatedEesDocument?.id
-      || currentEES.eesDocumentId
-      || currentEES.eesId
-      || "",
-    ).trim();
-
-    if (!eesId || !selectedApprover) {
-      toast.error("EES document or approval recipient is not available.");
-      return;
-    }
-
-    setIsSubmittingApproval(true);
-    try {
-      await submitEesForApproval({
-        eesId,
-        assignedToId: selectedApprover.id,
-        signature: signatureFile ?? undefined,
-      });
-      toast.success(
-        `EES forwarded to ${selectedApprover.name} for ${approvalTargetRole === "SECOND_ENGINEER" ? "Second Engineer" : "Manager"} review.`,
-      );
-      onNext();
-    } catch {
-      toast.error("EES could not be forwarded for approval. Please try again.");
-    } finally {
-      setIsSubmittingApproval(false);
-    }
+    onNext();
   };
 
   const handleSignatureFileChange = (
@@ -3226,20 +4089,30 @@ function Step4PreviewOnlyReview({
       return;
     }
 
-    const validatedPayload = createValidatedEesPayload(currentEES);
-
     setIsFinishingEdit(true);
     try {
+      // PATCH /ees replaces the EES payload. Re-read the complete Citilink AI
+      // payload first, then layer the Stage 4 edits over it so untouched
+      // checkbox groups and evaluation items are not accidentally dropped.
+      const patchSource = eesOperator === "citilink"
+        ? {
+            ...currentEES,
+            aiSummary: await getServiceBulletinAiSummary(backendId),
+          }
+        : currentEES;
+      const validatedPayload = createValidatedEesPayload(patchSource);
       await updateServiceBulletinEes(backendId, validatedPayload);
       const refreshedResult = await getServiceBulletinEes(backendId);
       if (refreshedResult.status !== "available") {
         throw new Error("Updated EES document was not found.");
       }
 
-      const updatedEes = mergeGeneratedEesIntoWorkflow(currentEES, refreshedResult.data);
+      const updatedEes = mergeGeneratedEesIntoWorkflow(patchSource, refreshedResult.data);
       onSaveData(updatedEes, attachments);
       setEditApplicability(updatedEes.applicability || "");
-      setEditAffectedEngines(updatedEes.affectedEngines || "");
+      setEditAffectedESNs(parseListEntries(updatedEes.affectedESNs || updatedEes.affectedEngines));
+      setEditAffectedModels(parseListEntries(updatedEes.affectedModels || updatedEes.effectedModel || updatedEes.effectivitySB));
+      setEditAffectedPartNumbers(parseListEntries(updatedEes.affectedPartNumbers || updatedEes.partNumber));
       setEditReferences(updatedEes.referencesRaw || "");
       setEditDueCompliance(updatedEes.dueCompliance || "");
       setEditRemarks(updatedEes.remarks || "");
@@ -3464,7 +4337,7 @@ function Step4PreviewOnlyReview({
               </span>
               <span className="text-[10px] text-muted-foreground">
                 {approvalOperator === "CITILINK"
-                  ? "Citilink EES is routed directly to a Manager."
+                  ? "Citilink-owned EES is routed directly to a Manager."
                   : approvalTargetRole === "SECOND_ENGINEER"
                     ? "Garuda Category 4 and above is routed to a Second Engineer."
                     : "Garuda Category 1–3 is routed directly to a Manager."}
@@ -3483,19 +4356,27 @@ function Step4PreviewOnlyReview({
               <select
                 id="ees-approval-assignee"
                 value={selectedApprover ? selectedApproverId : ""}
+                disabled={approversLoading}
                 onChange={event => {
                   setSelectedApproverId(event.target.value);
                   markUnsaved();
                 }}
-                className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-xs text-foreground outline-none focus:border-blue-500"
+                className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-xs text-foreground outline-none focus:border-blue-500 disabled:cursor-wait disabled:opacity-60"
               >
-                <option value="">Select {approvalTargetRole === "SECOND_ENGINEER" ? "Second Engineer" : "Manager"}</option>
+                <option value="">
+                  {approversLoading
+                    ? "Loading approval recipients..."
+                    : `Select ${approvalTargetRole === "SECOND_ENGINEER" ? "Second Engineer" : "Manager"}`}
+                </option>
                 {eligibleApprovers.map(approver => (
                   <option key={approver.id} value={approver.id}>
                     {approver.name} · {approver.unit} · {approver.employeeNumber}
                   </option>
                 ))}
               </select>
+              {approversError && (
+                <p className="mt-2 text-[10px] font-medium text-red-600">{approversError}</p>
+              )}
               {selectedApprover && (
                 <div className="mt-2 rounded-lg bg-muted px-3 py-2 text-[10px] text-muted-foreground">
                   <span className="font-semibold text-foreground">{selectedApprover.name}</span>
@@ -3519,7 +4400,7 @@ function Step4PreviewOnlyReview({
                 />
               </label>
               <p className="mt-1.5 text-[9px] leading-relaxed text-muted-foreground">
-                PNG/JPG, maximum 5 MB. {signatureRequired ? "Required for Garuda EES submission." : "Optional for the Citilink approval route."}
+                PNG/JPG, maximum 5 MB. {signatureRequired ? "Required because the source SB belongs to Garuda." : "Optional because the source SB belongs to Citilink."}
               </p>
             </div>
           </div>
@@ -3593,18 +4474,18 @@ function Step4PreviewOnlyReview({
             {draftSaved && <span className="flex items-center gap-1 text-[10px] font-medium text-green-500"><CheckCircle2 size={10} /> Saved</span>}
             <button
               onClick={handleSaveDraft}
-              disabled={saving}
+              disabled={saving || approversLoading}
               className="flex items-center gap-1.5 rounded-xl border border-border px-4 py-2 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-60"
             >
               {saving ? <Loader2 size={12} className="animate-spin" /> : <FileDown size={12} />}
               {saving ? "Saving..." : "Save Draft"}
             </button>
-            {ees?.isUnsyncedSB ? (
+            {isLocalOnlyDraft ? (
               <motion.button
                 whileHover={nextButtonHover}
                 whileTap={nextButtonTap}
                 onClick={handleContinueToApproval}
-                disabled={!draftSaved || !canSubmit || isSubmittingApproval}
+                disabled={!draftSaved || !canSubmit}
                 title={!draftSaved
                   ? "Save the draft before continuing."
                   : !canSubmit
@@ -3612,16 +4493,14 @@ function Step4PreviewOnlyReview({
                     : "Continue as an Unsynced draft."}
                 className="flex items-center gap-1.5 rounded-xl bg-gradient-to-br from-amber-500 to-amber-600 px-5 py-2 text-xs font-semibold text-white disabled:opacity-40"
               >
-                {isSubmittingApproval
-                  ? <><Loader2 size={12} className="animate-spin" /> Processing...</>
-                  : <>Continue as Unsynced <ChevronRight size={13} /></>}
+                <>Continue as Unsynced <ChevronRight size={13} /></>
               </motion.button>
             ) : (
               <motion.button
                 whileHover={nextButtonHover}
                 whileTap={nextButtonTap}
                 onClick={handleContinueToApproval}
-                disabled={!draftSaved || !canSubmit || isSubmittingApproval}
+                disabled={!draftSaved || !canSubmit}
                 title={!draftSaved
                   ? "Save the draft before submission."
                   : !canSubmit
@@ -3629,9 +4508,7 @@ function Step4PreviewOnlyReview({
                     : undefined}
               className="flex items-center gap-1.5 rounded-xl bg-gradient-to-br from-[#0242DB] to-[#0E1B93] px-5 py-2 text-xs font-semibold text-white disabled:opacity-40"
             >
-                {isSubmittingApproval
-                  ? <><Loader2 size={12} className="animate-spin" /> Submitting...</>
-                  : <>Submit to {approvalTargetRole === "SECOND_ENGINEER" ? "Second Engineer Review" : "Manager Review"} <ChevronRight size={13} /></>}
+                <>Continue to Done <ChevronRight size={13} /></>
               </motion.button>
             )}
           </div>
@@ -3656,7 +4533,17 @@ function Step5Done({
   docViewerOpen?: boolean;
   onToggleDoc?: () => void;
 }) {
-  const template: EESTemplate = ees?.eesTemplate || "garuda";
+  const selectedExportTemplate = normalizeManualUploadTemplate(
+    ees?.eesTemplate,
+  ) || normalizeManualUploadTemplate(
+    ees?.selectedSB?.eesTemplate,
+  ) || normalizeManualUploadTemplate(
+    ees?.generatedEesDocument?.eesTemplate,
+  );
+  const template: ManualUploadTemplate = selectedExportTemplate
+    || (getFleetTemplate(ees?.fleet || "").template === "citilink"
+      ? "citilink"
+      : "garuda");
   const isUnsynced = Boolean(ees?.isUnsyncedSB);
   const presentationSB = ees?.selectedSB?.isPresentationDummy
     ? ees.selectedSB as EESPresentationServiceBulletin
@@ -3692,7 +4579,7 @@ function Step5Done({
       : currentApprovalStage
         ? `Waiting for ${currentApprovalStage.label}`
         : "Waiting for Manager Review";
-  const templateLabel = template === "both" ? "Garuda + Citilink" : template === "citilink" ? "Citilink CT-3-18.1" : "Garuda EES";
+  const templateLabel = template === "citilink" ? "Citilink CT-3-18.1" : "Garuda EES";
   const auditTrail = [
     { event: "EES Created", user: "Ahmad Fikri Ramadhan", time: formatDateTime("2026-07-08T09:10:00+07:00"), color: "#0242DB" },
     { event: "System Generated", user: "ORBIT System", time: formatDateTime("2026-07-08T09:12:00+07:00"), color: "#10B981" },
@@ -3708,7 +4595,7 @@ function Step5Done({
       time: ees.geOverrideAudit.editedAt,
       color: "#EF4444",
     }] : []),
-    { event: `Output template selected: ${templateLabel}`, user: "Ahmad Fikri Ramadhan", time: formatDateTime("2026-07-08T09:20:00+07:00"), color: template === "citilink" ? "#10B981" : template === "both" ? "#8B5CF6" : "#0242DB" },
+    { event: `Output template selected: ${templateLabel}`, user: "Ahmad Fikri Ramadhan", time: formatDateTime("2026-07-08T09:20:00+07:00"), color: template === "citilink" ? "#10B981" : "#0242DB" },
     { event: "Applicability Reviewed", user: "Ahmad Fikri Ramadhan", time: formatDateTime("2026-07-08T09:28:00+07:00"), color: "#818CF8" },
     { event: "Draft Saved", user: "Ahmad Fikri Ramadhan", time: formatDateTime("2026-07-08T09:44:00+07:00"), color: "#8B5CF6" },
     {
@@ -3728,12 +4615,7 @@ function Step5Done({
         color: "#10B981",
       })),
   ];
-  const [previewTab, setPreviewTab] = useState<"garuda" | "citilink">("garuda");
-  const previewOperator = template === "both"
-    ? previewTab
-    : template === "citilink"
-      ? "citilink"
-      : "garuda";
+  const previewOperator = template;
   const previewPdfUrl = canUseBackendExport
     ? getEesPdfUrl(sourceSbId, previewOperator, "view")
     : "";
@@ -3767,8 +4649,8 @@ function Step5Done({
           >
             {workflowStatus}
           </span>
-          <span className="text-xs px-2 py-1 rounded-full font-semibold" style={{ background: template === "garuda" ? "#0242DB15" : template === "citilink" ? "#10B98115" : "#8B5CF615", color: template === "garuda" ? "#0242DB" : template === "citilink" ? "#10B981" : "#8B5CF6" }}>
-            {template === "both" ? "Garuda + Citilink" : template === "citilink" ? "Citilink CT-3" : "Garuda Template"}
+          <span className="text-xs px-2 py-1 rounded-full font-semibold" style={{ background: template === "garuda" ? "#0242DB15" : "#10B98115", color: template === "garuda" ? "#0242DB" : "#10B981" }}>
+            {template === "citilink" ? "Citilink CT-3" : "Garuda Template"}
           </span>
         </div>
         <div className="text-xs text-muted-foreground mt-2 leading-relaxed max-w-sm mx-auto">
@@ -3854,7 +4736,7 @@ function Step5Done({
               ["GE Impact", `${ees?.geImpact || "—"} — ${ees?.geImpactTitle || "—"}`],
             ] : []),
             ["Bulletin Number", ees?.bulletinNumber || "—"],
-            ["Output Template", template === "both" ? "Garuda + Citilink" : template === "citilink" ? "Citilink CT-3-18.1" : "Garuda EES"],
+            ["Output Template", templateLabel],
             ["Prepared By", "Ahmad Fikri Ramadhan"],
             [isUnsynced ? "Completed Date" : "Submitted Date", formatDateTime("2026-07-08T09:52:00+07:00")],
             ["Status", workflowStatus],
@@ -3872,19 +4754,9 @@ function Step5Done({
         <div className="px-4 py-2.5 flex items-center gap-2" style={{ borderBottom: "1px solid var(--border)", background: "var(--muted)" }}>
           <Eye size={12} style={{ color: "#0242DB" }} />
           <span className="text-xs font-semibold text-foreground">EES Output Preview</span>
-          {template === "both" && (
-            <div className="ml-auto flex gap-1">
-              {(["garuda", "citilink"] as const).map(tab => (
-                <button key={tab} onClick={() => setPreviewTab(tab)}
-                  className="px-2.5 py-1 rounded text-[10px] font-semibold capitalize transition-all"
-                  style={previewTab === tab
-                    ? { background: tab === "garuda" ? "#0242DB" : "#10B981", color: "white" }
-                    : { background: "var(--card)", color: "var(--muted-foreground)", border: "1px solid var(--border)" }}>
-                  {tab === "garuda" ? "Garuda" : "Citilink"}
-                </button>
-              ))}
-            </div>
-          )}
+          <span className="ml-auto rounded-full border border-border bg-card px-2.5 py-1 text-[10px] font-semibold text-muted-foreground">
+            {templateLabel}
+          </span>
         </div>
         <div
           className={previewPdfUrl ? "h-[680px] overflow-hidden" : "max-h-64 overflow-y-auto p-4"}
@@ -3899,8 +4771,6 @@ function Step5Done({
             />
           ) : template === "citilink" ? (
             <CitilinkEESPreview ees={ees} />
-          ) : template === "both" ? (
-            previewTab === "citilink" ? <CitilinkEESPreview ees={ees} /> : <EESTemplatePreview ees={ees} docViewerOpen={docViewerOpen} />
           ) : (
             <EESTemplatePreview ees={ees} docViewerOpen={docViewerOpen} />
           )}
@@ -3909,20 +4779,14 @@ function Step5Done({
 
       {/* Export buttons — template-aware */}
       <div className="flex flex-wrap items-center gap-2 mb-5">
-        {canUseBackendExport && (template === "garuda" || template === "both") && (
+        {canUseBackendExport && (
           <a
-            href={getEesPdfUrl(sourceSbId, "garuda", "download")}
+            href={getEesPdfUrl(sourceSbId, template, "download")}
             className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold text-white transition-all hover:scale-[1.02]"
-            style={{ background: "linear-gradient(135deg, #0242DB, #0E1B93)", boxShadow: "0 4px 14px rgba(2,66,219,0.2)" }}>
-            <Download size={13} /> Download Garuda PDF
-          </a>
-        )}
-        {canUseBackendExport && (template === "citilink" || template === "both") && (
-          <a
-            href={getEesPdfUrl(sourceSbId, "citilink", "download")}
-            className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-sm font-semibold text-white transition-all hover:scale-[1.02]"
-            style={{ background: "linear-gradient(135deg, #10B981, #059669)", boxShadow: "0 4px 14px rgba(16,185,129,0.2)" }}>
-            <Download size={13} /> Download Citilink PDF
+            style={template === "citilink"
+              ? { background: "linear-gradient(135deg, #10B981, #059669)", boxShadow: "0 4px 14px rgba(16,185,129,0.2)" }
+              : { background: "linear-gradient(135deg, #0242DB, #0E1B93)", boxShadow: "0 4px 14px rgba(2,66,219,0.2)" }}>
+            <Download size={13} /> Download {template === "citilink" ? "Citilink" : "Garuda"} PDF
           </a>
         )}
         {excelDownloadUrl && (
@@ -4269,7 +5133,10 @@ function EESGeneratorWorkflowContent({
                     ...previous,
                     applicabilityResult: result,
                     generatedEes,
-                    ees: mergeGeneratedEesIntoWorkflow(previous.ees, generatedEes),
+                    ees: {
+                      ...previous.ees,
+                      generatedEesDocument: generatedEes,
+                    },
                   }));
                   advance(3);
                 }}

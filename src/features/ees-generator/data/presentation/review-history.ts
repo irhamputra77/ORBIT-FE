@@ -16,6 +16,11 @@ function values(record: PresentationReview, key: string) {
     : [];
 }
 
+function complianceCategory(record: PresentationReview) {
+  const match = value(record, "eesCategory").match(/\d+/);
+  return match ? Number(match[0]) : null;
+}
+
 export const PRESENTATION_EES_REVIEW_HISTORY: EESReviewRecord[] = (
   reviewHistory as unknown as PresentationReview[]
 ).map((record, index) => ({
@@ -26,6 +31,9 @@ export const PRESENTATION_EES_REVIEW_HISTORY: EESReviewRecord[] = (
   revision: value(record, "revision", "—"),
   fleet: value(record, "fleet", "—"),
   engineType: value(record, "engineType", "—"),
+  complianceCategory: complianceCategory(record),
+  referredToName: value(record, "checkedBy") || null,
+  referredToRole: null,
   eesCategory: value(record, "eesCategory", "—"),
   categorySystem: value(record, "categorySystem", "ORBIT"),
   geCategory: value(record, "geCategory") || undefined,

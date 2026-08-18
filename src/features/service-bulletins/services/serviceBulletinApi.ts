@@ -141,6 +141,17 @@ export async function getServiceBulletins(
   return mapServiceBulletinList(response.data);
 }
 
+export async function getPendingServiceBulletins(
+  params: ServiceBulletinListParams,
+  signal?: AbortSignal,
+) {
+  const response = await axiosClient.get("/service-bulletins/pending", {
+    params,
+    signal,
+  });
+  return mapServiceBulletinList(response.data);
+}
+
 export async function getAllServiceBulletins(
   params: ServiceBulletinListParams,
   signal?: AbortSignal,
@@ -157,6 +168,37 @@ export async function getAllServiceBulletins(
   while (items.length < firstResult.total && page - firstPage < 999) {
     page += 1;
     const nextResult = await getServiceBulletins(
+      { ...params, page, limit },
+      signal,
+    );
+    if (!nextResult.items.length) break;
+    items.push(...nextResult.items);
+  }
+
+  return {
+    ...firstResult,
+    items,
+    page: firstPage,
+    limit: items.length,
+  };
+}
+
+export async function getAllPendingServiceBulletins(
+  params: ServiceBulletinListParams,
+  signal?: AbortSignal,
+) {
+  const limit = Math.min(Math.max(params.limit ?? 100, 1), 100);
+  const firstPage = Math.max(params.page ?? 1, 1);
+  const firstResult = await getPendingServiceBulletins(
+    { ...params, page: firstPage, limit },
+    signal,
+  );
+  const items = [...firstResult.items];
+  let page = firstPage;
+
+  while (items.length < firstResult.total && page - firstPage < 999) {
+    page += 1;
+    const nextResult = await getPendingServiceBulletins(
       { ...params, page, limit },
       signal,
     );
@@ -252,10 +294,11 @@ export async function getEesApprovalState(
   );
   const payload = isRecord(response.data) ? response.data : {};
   const data = isRecord(payload.data) ? payload.data : payload;
-  const assignedTo = isRecord(data.assignedTo)
-    ? data.assignedTo
-    : isRecord(data.currentAssignee)
-      ? data.currentAssignee
+  const approval = isRecord(data.approval) ? data.approval : data;
+  const assignedTo = isRecord(approval.assignedTo)
+    ? approval.assignedTo
+    : isRecord(approval.currentAssignee)
+      ? approval.currentAssignee
       : {};
   const rawHistory = Array.isArray(data.history)
     ? data.history
@@ -264,16 +307,16 @@ export async function getEesApprovalState(
       : [];
 
   return {
-    status: nullableString(data.status ?? data.reviewStatus),
+    status: nullableString(approval.status ?? approval.reviewStatus),
     currentStage: nullableString(
-      data.currentStage
-      ?? data.stage
-      ?? data.approvalStage,
+      approval.currentStage
+      ?? approval.stage
+      ?? approval.approvalStage,
     ),
     assignedRole: nullableString(
-      data.assignedRole
+      approval.assignedRole
       ?? assignedTo.role
-      ?? data.currentReviewerRole,
+      ?? approval.currentReviewerRole,
     ),
     history: rawHistory
       .map(mapApprovalHistoryItem)

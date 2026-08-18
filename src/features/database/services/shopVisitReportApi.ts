@@ -12,6 +12,7 @@ import type {
 } from "../types";
 
 export const MAX_SVR_PDF_SIZE = 100 * 1024 * 1024;
+export const MAX_SVR_PDF_FILES = 6;
 
 export async function validateShopVisitReportPdf(file: File) {
   if (!file.name.toLowerCase().endsWith(".pdf")) {
@@ -34,20 +35,27 @@ export async function validateShopVisitReportPdf(file: File) {
 }
 
 export async function uploadShopVisitReport(
-  file: File,
+  files: File[],
   signal?: AbortSignal,
   onProgress?: (percentage: number) => void,
 ): Promise<UploadShopVisitReportResult> {
+  if (files.length === 0 || files.length > MAX_SVR_PDF_FILES) {
+    throw new Error(`Pilih 1 sampai ${MAX_SVR_PDF_FILES} file PDF SVR.`);
+  }
+
+  const formData = new FormData();
+  files.forEach((file) => formData.append("files", file, file.name));
+
   const response = await axiosClient.post<UploadShopVisitReportResult>(
     "/shop-visit-reports/upload/SVR",
-    file,
+    formData,
     {
+      // axiosClient defaults to application/json. Override it here so Axios
+      // keeps the FormData body and lets the browser attach its multipart
+      // boundary instead of serializing the form as JSON.
+      headers: { "Content-Type": "multipart/form-data" },
       signal,
       timeout: 0,
-      headers: {
-        "Content-Type": "application/pdf",
-        "X-File-Name": file.name,
-      },
       onUploadProgress: (event) => {
         if (!event.total) return;
         onProgress?.(Math.min(100, Math.round((event.loaded / event.total) * 100)));

@@ -183,7 +183,8 @@ export function ServiceBulletinDetailPage({ id }: { id: string }) {
   const approved = sb.eesReviewStatus?.toUpperCase() === "APPROVED";
   const hasEes = Boolean(sb.generatedEesId || sb.eesNumber);
   const isCitilink = /A320|ATR/i.test(sb.aircraftType || "");
-  const eesOperator = isCitilink ? "citilink" : "garuda";
+  const eesOperator = sb.eesTemplate
+    || (isCitilink ? "citilink" : "garuda");
   const categorySupportsExtraction = (sb.category ?? 0) >= 4;
   const sourceIsUser = sb.inputSource === "USER_UPLOAD";
 

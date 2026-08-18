@@ -22,8 +22,10 @@ import {
 import { CompactRadioOptions } from "./CompactRadioOptions";
 import { CitilinkEESTemplatePreview } from "./CitilinkEESTemplatePreview";
 import { AffectedEngineFieldEditor } from "./AffectedEngineFieldEditor";
+import { MultiValueFieldEditor } from "./MultiValueFieldEditor";
 import { EESReviewEvaluation } from "../types/review"
-import { parseEsnEntries } from "../services/esn-fields";
+import { parseListEntries } from "../services/esn-fields";
+import type { CitilinkEditableValue } from "../services/citilink-fields";
 import DOMPurify from "isomorphic-dompurify";
 
 export function EESTemplatePreview({
@@ -36,16 +38,18 @@ export function EESTemplatePreview({
   docViewerOpen = false,
   allowRelationEditing = false,
   esnEditable,
+  compactFields = false,
 }: {
   ees: any;
   editableFields?: boolean;
   remarksEditable?: boolean;
   remarksValue?: string;
   onRemarksChange?: (v: string) => void;
-  onFieldChange?: (field: string, value: string) => void;
+  onFieldChange?: (field: string, value: CitilinkEditableValue) => void;
   docViewerOpen?: boolean;
   allowRelationEditing?: boolean;
   esnEditable?: boolean;
+  compactFields?: boolean;
 }) {
   const [relationFormOpen, setRelationFormOpen] = useState(false);
   const [targetSbNumber, setTargetSbNumber] = useState("");
@@ -70,8 +74,14 @@ export function EESTemplatePreview({
       || ees.bulletinNumber
       || "ees-draft",
   );
-  const esnValues = parseEsnEntries(
-    ees.affectedEngines || ees.esn || ees.affectedESNs || ees.engine,
+  const esnValues = parseListEntries(
+    ees.affectedESNs || ees.esnEntries || ees.affectedEngines || ees.esn || ees.engine,
+  );
+  const affectedModelValues = parseListEntries(
+    ees.affectedModels || ees.effectedModel || ees.effectivitySB || ees.engineType,
+  );
+  const partNumberValues = parseListEntries(
+    ees.affectedPartNumbers || ees.partNumber || ees.selectedSB?.affectedPartNumbers,
   );
   const isGEClassification = ees.categorySystem === "GE";
   const previewGECategory = getGECategory(ees.geCategory);
@@ -106,6 +116,9 @@ export function EESTemplatePreview({
     : ees.selectedSB?.backendId as string | undefined;
   const backendRelationships: ServiceBulletinRelationship[] =
     relationshipQuery.data?.relationships ?? [];
+  const unregisteredRelationshipCount = backendRelationships.filter(
+    relation => relation.syncStatus === "UNREGISTERED",
+  ).length;
   const requestedRelationshipStatus = (
     ["SUPERSEDED", "RECURRENT", "BOTH", "NONE"].includes(
       ees.relationshipStatus,
@@ -160,6 +173,7 @@ export function EESTemplatePreview({
         editableFields={editableFields}
         onFieldChange={onFieldChange}
         docViewerOpen={docViewerOpen}
+        compactFields={compactFields}
       />
     );
   }
@@ -408,15 +422,66 @@ export function EESTemplatePreview({
         </div>
 
 
+        {/* Affected model, part number, and ESN are arrays in the UI. */}
+        <div className="grid gap-4 pb-4 md:grid-cols-2" style={{ borderBottom: "1px solid var(--border)" }}>
+          <div>
+            <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Affected Model</div>
+            {editableFields ? (
+              <MultiValueFieldEditor
+                idPrefix={`${esnOwnerKey}-affected-model`}
+                value={ees.affectedModels}
+                fallbackValue={ees.effectedModel || ees.effectivitySB || ees.engineType}
+                itemLabel="Affected Model"
+                addLabel="Add Model"
+                placeholder="Enter affected model"
+                helpText="Enter one affected model per field. Values are joined into one string when submitted."
+                onChange={entries => onFieldChange?.("affectedModels", entries)}
+                compact={compactFields}
+              />
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {affectedModelValues.map((value: string, index: number) => (
+                  <span key={`${value}-${index}`} className="px-2 py-0.5 rounded text-[10px] font-mono" style={{ background: "var(--muted)", border: "1px solid var(--border)" }}>{value}</span>
+                ))}
+                {!affectedModelValues.length && <span className="text-[10px] text-muted-foreground">—</span>}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Part Number</div>
+            {editableFields ? (
+              <MultiValueFieldEditor
+                idPrefix={`${esnOwnerKey}-part-number`}
+                value={ees.affectedPartNumbers}
+                fallbackValue={ees.partNumber || ees.selectedSB?.affectedPartNumbers}
+                itemLabel="Part Number"
+                addLabel="Add Part Number"
+                placeholder="Enter part number"
+                helpText="Enter one part number per field. Values are joined into one string when submitted."
+                onChange={entries => onFieldChange?.("affectedPartNumbers", entries)}
+                compact={compactFields}
+              />
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {partNumberValues.map((value: string, index: number) => (
+                  <span key={`${value}-${index}`} className="px-2 py-0.5 rounded text-[10px] font-mono" style={{ background: "var(--muted)", border: "1px solid var(--border)" }}>{value}</span>
+                ))}
+                {!partNumberValues.length && <span className="text-[10px] text-muted-foreground">—</span>}
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Affected A/C or Engine (ESN) */}
         <div className="pb-4" style={{ borderBottom: "1px solid var(--border)" }}>
           <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-2">Affected A/C or Engine (ESN)</div>
           {canEditEsn ? (
             <AffectedEngineFieldEditor
               ownerKey={esnOwnerKey}
-              value={ees.affectedEngines || ees.esn}
-              fallbackValue={ees.affectedESNs || ees.engine}
-              onChange={value => onFieldChange?.("affectedEngines", value)}
+              value={ees.affectedESNs || ees.esnEntries}
+              fallbackValue={ees.affectedEngines || ees.esn || ees.engine}
+              onChange={entries => onFieldChange?.("affectedESNs", entries)}
             />
           ) : (
             <div className="flex flex-wrap gap-1.5">
@@ -537,7 +602,7 @@ export function EESTemplatePreview({
                 : relationshipQuery.isLoading
                   ? "Loading"
                   : backendRelationships.length
-                    ? `${backendRelationships.length} Direct`
+                    ? `${backendRelationships.length} Direct${unregisteredRelationshipCount ? ` · ${unregisteredRelationshipCount} Unregistered` : ""}`
                     : "No Relationship"}
             </span>
             <span className="rounded bg-muted px-1.5 py-0.5 text-[8px] font-semibold text-muted-foreground">
@@ -729,10 +794,23 @@ export function EESTemplatePreview({
                         ? "Incoming"
                         : "Outgoing"}
                     </span>
-                    <span className="ml-auto text-[10px] text-muted-foreground">
-                      {relation.status || "—"}
+                    <span
+                      className={`ml-auto rounded border px-1.5 py-0.5 text-[9px] font-bold ${
+                        relation.syncStatus === "UNREGISTERED"
+                          ? "border-amber-500 bg-amber-500 text-white"
+                          : relation.syncStatus === "REGISTERED"
+                            ? "border-emerald-600 bg-emerald-600 text-white"
+                            : "border-slate-500 bg-slate-600 text-white"
+                      }`}
+                    >
+                      {relation.syncStatus || "UNKNOWN"}
                     </span>
                   </div>
+                  {relation.syncStatus === "UNREGISTERED" && (
+                    <p className="mt-1.5 text-[9px] font-medium text-amber-700">
+                      This Service Bulletin is not registered in the main SB database.
+                    </p>
+                  )}
                   {relation.remarks && (
                     <p className="mt-1.5 text-[9px] leading-relaxed text-muted-foreground">
                       {relation.remarks}

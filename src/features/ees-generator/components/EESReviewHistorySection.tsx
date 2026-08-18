@@ -10,7 +10,7 @@ import {
   Loader2,
   RefreshCw,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useSmoothNavigation } from "@/components/orbit/SmoothNavigationProvider";
 
 import type { EESHistoryPagination } from "../services/ees-review-service";
 import type { EESReviewRecord } from "../types/review";
@@ -50,7 +50,7 @@ export function EESReviewHistorySection({
   onRetry: () => void;
   onPageChange: (page: number) => void;
 }) {
-  const router = useRouter();
+  const router = useSmoothNavigation();
 
   const openEesDetail = (record: EESReviewRecord) => {
     router.push(
@@ -101,13 +101,14 @@ export function EESReviewHistorySection({
         ) : records.length ? (
           <>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[960px] text-left text-xs">
+              <table className="w-full min-w-[1180px] text-left text-xs">
                 <thead className="bg-muted/60 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
                   <tr>
                     <th className="px-5 py-3">EES Number</th>
                     <th className="px-4 py-3">Bulletin Number</th>
                     <th className="px-4 py-3">Fleet / Engine</th>
                     <th className="px-4 py-3">Category</th>
+                    <th className="px-4 py-3">Refers To</th>
                     <th className="px-4 py-3">Created</th>
                     <th className="px-4 py-3">Prepared By</th>
                     <th className="px-5 py-3">Status</th>
@@ -143,7 +144,27 @@ export function EESReviewHistorySection({
                           <p className="mt-0.5 text-[10px] text-muted-foreground">{record.engineType}</p>
                         </td>
                         <td className="px-4 py-3.5 text-muted-foreground">
-                          {record.eesCategory}
+                          {record.complianceCategory === null
+                            ? "—"
+                            : `Category ${record.complianceCategory}`}
+                        </td>
+                        <td className="max-w-[300px] px-4 py-3.5">
+                          {record.referredToName ? (
+                            <div>
+                              <p className="font-medium text-foreground">
+                                {record.referredToName}
+                              </p>
+                              {record.referredToRole && (
+                                <span className="mt-1 inline-flex rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[9px] font-semibold text-blue-700">
+                                  {record.referredToRole}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-[10px] text-muted-foreground">
+                              Not assigned
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-3.5 text-muted-foreground">
                           {record.reviewDate}

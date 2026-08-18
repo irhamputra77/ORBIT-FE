@@ -28,6 +28,15 @@ function nullableText(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
+function nullableNumber(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
 function formatStatus(value: unknown) {
   const normalized = text(value).toUpperCase();
   if (normalized === "APPROVED") return "Approved";
@@ -79,20 +88,36 @@ function mapEvaluation(value: unknown): EESReviewEvaluation | null {
   };
 }
 
+function referredToRole(value: unknown): EESReviewRecord["referredToRole"] {
+  const role = text(value).toUpperCase();
+  if (role.includes("MANAGER")) return "Manager";
+  if (role.includes("ENGINEER")) return "Second Engineer";
+  return null;
+}
+
 function mapReviewRecord(value: unknown): EESReviewRecord | null {
   if (!isRecord(value)) return null;
   const sourceSb = isRecord(value.sourceSb) ? value.sourceSb : {};
   const operator = isRecord(sourceSb.operator) ? sourceSb.operator : {};
+  const assignedEngineer = isRecord(value.assignedEngineer)
+    ? value.assignedEngineer
+    : {};
   const evaluations = Array.isArray(value.evaluations)
     ? value.evaluations.map(mapEvaluation).filter((item): item is EESReviewEvaluation => item !== null)
     : [];
   const esn = stringList(value.esn);
   const bulletinNumber = text(sourceSb.sbNumber, text(value.bulletinNumber, "—"));
+  const sourceSbId = text(value.sourceSbId, text(sourceSb.id));
   const createdAt = value.createdAt;
+  const complianceCategory = nullableNumber(sourceSb.complianceCategory)
+    ?? nullableNumber(value.category)
+    ?? null;
+  const assignedEngineerName = personName(assignedEngineer);
+  const assignedRole = referredToRole(assignedEngineer.role);
 
   return {
     id: text(value.id, text(value.eesNumber)),
-    sourceSbId: text(value.sourceSbId, text(sourceSb.id)),
+    sourceSbId,
     eesNumber: text(value.eesNumber, "—"),
     bulletinNumber,
     revision: text(sourceSb.revision, inferRevision(bulletinNumber)),
@@ -100,7 +125,12 @@ function mapReviewRecord(value: unknown): EESReviewRecord | null {
     engineType: text(value.effectedType, "—"),
     operatorCode: text(operator.code) || undefined,
     operatorName: text(operator.name) || undefined,
-    eesCategory: text(value.eesCategory, "—"),
+    complianceCategory,
+    referredToName: assignedEngineerName === "—" ? null : assignedEngineerName,
+    referredToRole: assignedRole,
+    eesCategory: complianceCategory === null
+      ? "—"
+      : `Category ${complianceCategory}`,
     categorySystem: text(value.categorySystem, "ORBIT"),
     reviewDate: formatDateTime(typeof createdAt === "string" ? createdAt : null),
     submittedDate: formatDateTime(typeof createdAt === "string" ? createdAt : null),
