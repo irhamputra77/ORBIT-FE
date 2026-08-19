@@ -15,6 +15,7 @@ import {
   Mail,
 } from "lucide-react";
 import { useLogin } from "@/features/authentication";
+import { CrossfadeBackgroundVideo } from "@/features/authentication/components/CrossfadeBackgroundVideo";
 import { SHOW_NOTIFICATION_TOAST_AFTER_LOGIN } from "@/features/notifications";
 import { SmoothLoadingScreen } from "@/components/orbit/SmoothNavigationProvider";
 
@@ -75,29 +76,11 @@ export default function LoginPage() {
       />
       <SmoothLoadingScreen visible={isLoading || isRedirecting} />
 
-      <Image
-        src="/images/gmf-hangar-4.jpg"
-        alt="GMF AeroAsia Hangar 4"
-        width={1920}
-        height={980}
-        priority
-        unoptimized
-        className="absolute inset-y-0 right-[-480px] h-full w-auto max-w-none object-contain"
-      />
-
+      <CrossfadeBackgroundVideo src="/shader.mp4" />
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute right-0 top-1/2 z-[1] hidden h-[110%] w-[70%] -translate-y-1/2 lg:block"
-      >
-        <Image
-          src="/images/gradient-blue.png"
-          alt=""
-          fill
-          priority
-          sizes="70vw"
-          className="object-fill"
-        />
-      </div>
+        className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(3,15,62,0.68)_0%,rgba(4,70,220,0.24)_48%,rgba(2,12,48,0.72)_100%)]"
+      />
 
       <div className="relative z-10 grid min-h-screen w-full max-w-full lg:h-full lg:grid-cols-[minmax(0,45fr)_minmax(0,55fr)]">
         <section className=" relative z-10 flex min-h-screen items-center justify-center bg-white px-[clamp(24px,4vw,64px)] py-[clamp(32px,5vh,48px)] text-[#07143F] lg:min-h-0 lg:min-w-0 lg:rounded-r-[24px]">
@@ -226,7 +209,7 @@ export default function LoginPage() {
                 width={241}
                 height={51}
                 priority
-                className=" ml-auto h-auto w-[180px] brightness-0 invert xl:w-[210px]"
+                className=" ml-auto h-auto w-[180px] brightness-0 invert xl:w-[150px]"
               />
               <div className="ml-auto mt-5 h-1 w-[210px] rounded-full bg-gradient-to-r from-white/70 to-[#0B8BFF]" />
               <h2 className="mt-5 text-[28px] font-bold leading-[1.35] tracking-[0.01em] text-white xl:text-[34px] 2xl:text-[39px]">
