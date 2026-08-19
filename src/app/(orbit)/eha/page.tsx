@@ -1,8 +1,7 @@
 "use client";
 
 import { RadarChart, Radar, PolarGrid, PolarAngleAxis, ResponsiveContainer, Tooltip } from 'recharts';
-import { TrendingUp, Sparkles, FileDown } from 'lucide-react';
-import { useApp } from '../context/AppContext';
+import { FileDown } from 'lucide-react';
 
 const radarData = [
   { subject: 'EGT Margin', A: 72, B: 85, fullMark: 100 },
@@ -14,8 +13,6 @@ const radarData = [
 ];
 
 export default function EHAPage() {
-  const { openAIPanel } = useApp();
-
   return (
     <div className="p-6 max-w-[1400px] mx-auto">
       <div className="flex items-center justify-between mb-6">
@@ -24,9 +21,6 @@ export default function EHAPage() {
           <p className="text-sm text-muted-foreground">Comprehensive engine health assessment based on performance and trend data.</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => openAIPanel('Generate Engine Health Assessment report')} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white" style={{ background: 'linear-gradient(135deg, #0242DB, #00C2FF)' }}>
-            <Sparkles size={14} /> Generate EHA
-          </button>
           <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-foreground border hover:bg-accent transition-colors" style={{ border: '1px solid var(--border)' }}>
             <FileDown size={13} /> Export
           </button>

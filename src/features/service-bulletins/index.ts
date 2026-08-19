@@ -16,6 +16,8 @@ export {
   getEesApprovalState,
   generateServiceBulletinEes,
   updateServiceBulletinEes,
+  getEesEditBlockReason,
+  getEesUpdateErrorMessage,
   getServiceBulletinPdfUrl,
   getEesPdfUrl,
   getEesExcelUrl,

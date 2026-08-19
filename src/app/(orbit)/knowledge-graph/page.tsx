@@ -1,12 +1,11 @@
 "use client";
 
 import { useState, useRef } from 'react';
-import { ZoomIn, ZoomOut, Maximize2, Filter, Sparkles } from 'lucide-react';
-import { useApp } from '../context/AppContext';
+import { ZoomIn, ZoomOut, Maximize2, Filter } from 'lucide-react';
 
 interface GraphNode {
   id: string; label: string; type: string; x: number; y: number;
-  color: string; size: number; data?: any;
+  color: string; size: number;
 }
 
 interface GraphEdge {
@@ -84,7 +83,6 @@ export default function KnowledgeGraphPage() {
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [visibleTypes, setVisibleTypes] = useState(new Set(nodeTypes.map(n => n.type)));
   const svgRef = useRef<SVGSVGElement>(null);
-  const { openAIPanel } = useApp();
 
   const toggleType = (type: string) => {
     setVisibleTypes(prev => {
@@ -114,13 +112,6 @@ export default function KnowledgeGraphPage() {
           <button onClick={() => setZoom(z => Math.min(z + 0.2, 3))} className="p-1.5 rounded-lg hover:bg-accent transition-colors border" style={{ border: '1px solid var(--border)' }}><ZoomIn size={14} /></button>
           <button onClick={() => setZoom(z => Math.max(z - 0.2, 0.3))} className="p-1.5 rounded-lg hover:bg-accent transition-colors border" style={{ border: '1px solid var(--border)' }}><ZoomOut size={14} /></button>
           <button onClick={() => { setZoom(1); setPan({ x: 0, y: 0 }); }} className="p-1.5 rounded-lg hover:bg-accent transition-colors border" style={{ border: '1px solid var(--border)' }}><Maximize2 size={14} /></button>
-          <button
-            onClick={() => openAIPanel('Analyze the knowledge graph and identify key relationships')}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white"
-            style={{ background: 'linear-gradient(135deg, #0242DB, #00C2FF)' }}
-          >
-            <Sparkles size={12} /> AI Analyze Graph
-          </button>
         </div>
       </div>
 
@@ -287,13 +278,6 @@ export default function KnowledgeGraphPage() {
                   );
                 })}
               </div>
-              <button
-                onClick={() => openAIPanel(`Analyze ${selectedData.id} and its engineering relationships`)}
-                className="w-full mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white justify-center"
-                style={{ background: 'linear-gradient(135deg, #0242DB, #00C2FF)' }}
-              >
-                <Sparkles size={11} /> Analyze Node
-              </button>
             </div>
           </div>
         )}

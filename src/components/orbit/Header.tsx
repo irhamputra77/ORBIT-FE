@@ -36,7 +36,6 @@ export function Header() {
     darkMode,
     toggleDarkMode,
     setGlobalSearchOpen,
-    openAIPanel,
     userRole,
     setUserRole,
     dataSourceMode,
@@ -254,20 +253,6 @@ export function Header() {
           Manager
         </button>
       </div>
-
-      {/* AI Quick Action */}
-      <button
-        onClick={() => openAIPanel('General engineering query')}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all"
-        style={{ background: 'linear-gradient(135deg, #0242DB, #00C2FF)', color: 'white', boxShadow: '0 2px 8px rgba(2,66,219,0.3)' }}
-      >
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none">
-          <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="white" strokeWidth="2" strokeLinejoin="round" />
-          <path d="M2 17L12 22L22 17" stroke="white" strokeWidth="2" strokeLinejoin="round" />
-          <path d="M2 12L12 17L22 12" stroke="white" strokeWidth="2" strokeLinejoin="round" />
-        </svg>
-        AI Assist
-      </button>
 
       <NotificationCenter />
 

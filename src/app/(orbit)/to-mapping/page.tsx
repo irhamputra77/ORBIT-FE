@@ -2,12 +2,10 @@
 
 import { useState } from 'react';
 import { technicalOrders } from '../../../data/mockData';
-import { FileText, ChevronRight, Sparkles, BookOpen } from 'lucide-react';
-import { useApp } from '../context/AppContext';
+import { ChevronRight, BookOpen } from 'lucide-react';
 
 export default function TOMappingPage() {
-  const [selected, setSelected] = useState<any>(technicalOrders[0]);
-  const { openAIPanel } = useApp();
+  const [selected, setSelected] = useState(technicalOrders[0]);
 
   return (
     <div className="p-6 max-w-[1400px] mx-auto">
@@ -16,9 +14,6 @@ export default function TOMappingPage() {
           <h1 className="text-foreground mb-0.5">TO Mapping</h1>
           <p className="text-sm text-muted-foreground">Technical Order mapping with linked Engineering Orders and engine traceability.</p>
         </div>
-        <button onClick={() => openAIPanel('Summarize all Technical Orders and their EO links')} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white" style={{ background: 'linear-gradient(135deg, #0242DB, #00C2FF)' }}>
-          <Sparkles size={14} /> AI Summary
-        </button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

@@ -2,8 +2,7 @@
 
 import { useState } from 'react';
 import { engines, serviceBulletins, engineeringOrders, findings, lrus } from '../../../data/mockData';
-import { useApp } from '../context/AppContext';
-import { Cpu, FileText, GitBranch, Package, AlertTriangle, Sparkles, ChevronRight, Activity } from 'lucide-react';
+import { Cpu, FileText, GitBranch, Package, AlertTriangle } from 'lucide-react';
 
 const nodeTypes = [
   { type: 'engine', label: 'Engine', color: '#0242DB', icon: Cpu },
@@ -13,7 +12,7 @@ const nodeTypes = [
   { type: 'finding', label: 'Finding', color: '#EF4444', icon: AlertTriangle },
 ];
 
-function MappingGraph({ selectedEngine }: { selectedEngine: any }) {
+function MappingGraph({ selectedEngine }: { selectedEngine: (typeof engines)[number] | null }) {
   const [hovered, setHovered] = useState<string | null>(null);
 
   if (!selectedEngine) return (
@@ -26,8 +25,6 @@ function MappingGraph({ selectedEngine }: { selectedEngine: any }) {
   const engineFindings = findings.filter(f => f.esn === selectedEngine.esn).slice(0, 2);
 
   const centerX = 300, centerY = 230;
-  const radius = 150;
-
   const sideNodes = [
     ...engineSBs.map((sb, i) => ({ id: sb.id, label: sb.id, sublabel: sb.title.slice(0, 24) + '…', x: centerX - 220, y: 80 + i * 90, color: '#00C2FF', type: 'sb' })),
     ...engineEOs.map((eo, i) => ({ id: eo.id, label: eo.id, sublabel: eo.title.slice(0, 22) + '…', x: centerX + 200, y: 80 + i * 90, color: '#818CF8', type: 'eo' })),
@@ -105,7 +102,6 @@ function MappingGraph({ selectedEngine }: { selectedEngine: any }) {
 
 export default function EngineMappingPage() {
   const [selectedEngine, setSelectedEngine] = useState(engines[0]);
-  const { openAIPanel } = useApp();
 
   return (
     <div className="p-6 max-w-[1400px] mx-auto">
@@ -114,14 +110,6 @@ export default function EngineMappingPage() {
           <h1 className="text-foreground mb-0.5">Engine Mapping</h1>
           <p className="text-sm text-muted-foreground">Visual relationship mapping for engine-centric data connections.</p>
         </div>
-        <button
-          onClick={() => openAIPanel(`Analyze engine connections for ${selectedEngine?.model}`)}
-          className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white"
-          style={{ background: 'linear-gradient(135deg, #0242DB, #00C2FF)' }}
-        >
-          <Sparkles size={14} />
-          AI Analyze
-        </button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">

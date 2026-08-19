@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from 'react';
-import { Settings, Users, Bell, Shield, Database, Key, Globe, Save, ChevronRight } from 'lucide-react';
+import { Settings, Users, Bell, Shield, Database, Key, Save, ChevronRight } from 'lucide-react';
 
 const sections = [
   { id: 'general', label: 'General', icon: Settings },
@@ -31,7 +31,7 @@ export default function AdministrationPage() {
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
         {/* Sidebar */}
         <div className="rounded-xl overflow-hidden" style={{ background: 'var(--card)', border: '1px solid var(--border)', height: 'fit-content' }}>
-          {sections.map((s, i) => (
+          {sections.map((s) => (
             <button
               key={s.id}
               onClick={() => setActiveSection(s.id)}
@@ -72,7 +72,6 @@ export default function AdministrationPage() {
                 <div className="text-xs font-semibold text-foreground mb-3">Feature Flags</div>
                 <div className="space-y-2">
                   {[
-                    { label: 'AI Assistant', desc: 'Enable ORBIT AI for all users', enabled: true },
                     { label: 'Knowledge Graph', desc: 'Advanced graph visualization', enabled: true },
                     { label: 'Auto EES Generation', desc: 'Automatic EES on SB import', enabled: false },
                     { label: 'Fleet-wide Alerts', desc: 'Automated compliance alerts', enabled: true },

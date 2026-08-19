@@ -2,15 +2,13 @@
 
 import { useState } from 'react';
 import { engineeringOrders } from '../../../data/mockData';
-import { GitBranch, Plus, Sparkles, ChevronRight, FileText, Package } from 'lucide-react';
-import { useApp } from '../context/AppContext';
+import { GitBranch, Plus, ChevronRight, FileText } from 'lucide-react';
 
 const priorityColor = (p: string) => p === 'Critical' ? '#EF4444' : p === 'High' ? '#F59E0B' : p === 'Medium' ? '#0242DB' : '#6B7280';
 const statusColor = (s: string) => s === 'Active' ? '#10B981' : s === 'In Review' ? '#F59E0B' : s === 'Draft' ? '#6B7280' : '#0242DB';
 
 export default function EOMappingPage() {
-  const [selected, setSelected] = useState<any>(engineeringOrders[0]);
-  const { openAIPanel } = useApp();
+  const [selected, setSelected] = useState(engineeringOrders[0]);
 
   return (
     <div className="p-6 max-w-[1400px] mx-auto">
@@ -22,9 +20,6 @@ export default function EOMappingPage() {
         <div className="flex gap-2">
           <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-foreground border transition-colors hover:bg-accent" style={{ border: '1px solid var(--border)' }}>
             <Plus size={13} /> New EO
-          </button>
-          <button onClick={() => openAIPanel('Analyze open Engineering Orders')} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white" style={{ background: 'linear-gradient(135deg, #0242DB, #00C2FF)' }}>
-            <Sparkles size={13} /> AI Analyze
           </button>
         </div>
       </div>
@@ -95,8 +90,7 @@ export default function EOMappingPage() {
                     { label: 'Engine', value: selected.engine, color: '#0242DB', icon: '⚙' },
                     { label: 'EO', value: selected.id, color: '#818CF8', icon: '🔧' },
                     selected.linkedSB ? { label: 'Linked SB', value: selected.linkedSB, color: '#00C2FF', icon: '📋' } : null,
-                    selected.linkedTO ? { label: 'Linked TO', value: selected.linkedTO, color: '#10B981', icon: '📝' } : null,
-                  ].filter(Boolean).map((node: any, i, arr) => (
+                  ].filter((node): node is { label: string; value: string; color: string; icon: string } => node !== null).map((node, i, arr) => (
                     <div key={i} className="flex items-center gap-2 shrink-0">
                       <div
                         className="rounded-xl px-4 py-3 text-center min-w-[120px]"
@@ -113,9 +107,6 @@ export default function EOMappingPage() {
               </div>
 
               <div className="flex gap-3">
-                <button onClick={() => openAIPanel(`Analyze EO ${selected.id}`)} className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium text-white" style={{ background: 'linear-gradient(135deg, #0242DB, #00C2FF)' }}>
-                  <Sparkles size={14} /> AI Analyze EO
-                </button>
                 <button className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm text-foreground border hover:bg-accent transition-colors" style={{ border: '1px solid var(--border)' }}>
                   <FileText size={14} /> Generate EES
                 </button>

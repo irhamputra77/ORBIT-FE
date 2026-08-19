@@ -11,10 +11,6 @@ interface AppContextType {
   toggleSidebar: () => void;
   selectedEngine: string | null;
   setSelectedEngine: (engine: string | null) => void;
-  aiPanelOpen: boolean;
-  aiContext: string;
-  openAIPanel: (context?: string) => void;
-  closeAIPanel: () => void;
   globalSearchOpen: boolean;
   setGlobalSearchOpen: (open: boolean) => void;
   userRole: 'engineer' | 'manager';
@@ -47,8 +43,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [darkMode, setDarkMode] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [selectedEngine, setSelectedEngine] = useState<string | null>('CFM56-7B / ESN 962771');
-  const [aiPanelOpen, setAiPanelOpen] = useState(false);
-  const [aiContext, setAiContext] = useState('');
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const [userRole, setUserRole] = useState<'engineer' | 'manager'>('engineer');
   const dataSourceMode = useSyncExternalStore<DataSourceMode>(
@@ -73,7 +67,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
       if (e.key === 'Escape') {
         setGlobalSearchOpen(false);
-        setAiPanelOpen(false);
       }
     };
     window.addEventListener('keydown', handleKey);
@@ -87,19 +80,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
     window.dispatchEvent(new Event(DATA_SOURCE_CHANGE_EVENT));
   };
 
-  const openAIPanel = (context = '') => {
-    setAiContext(context);
-    setAiPanelOpen(true);
-  };
-
-  const closeAIPanel = () => setAiPanelOpen(false);
-
   return (
     <AppContext.Provider value={{
       darkMode, toggleDarkMode,
       sidebarCollapsed, toggleSidebar,
       selectedEngine, setSelectedEngine,
-      aiPanelOpen, aiContext, openAIPanel, closeAIPanel,
       globalSearchOpen, setGlobalSearchOpen,
       userRole, setUserRole,
       dataSourceMode, setDataSourceMode,

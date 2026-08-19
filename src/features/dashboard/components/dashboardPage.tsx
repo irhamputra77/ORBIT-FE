@@ -966,15 +966,6 @@ export default function DashboardPage() {
                 Current Service Bulletin and EES workflow indicators.
               </p>
             </div>
-            {!isManager && (
-              <button
-                type="button"
-                onClick={() => router.push("/applicability-review")}
-                className="text-[10px] font-semibold text-blue-600"
-              >
-                Review applicability
-              </button>
-            )}
           </div>
           <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
             {coverage.map((item) => (

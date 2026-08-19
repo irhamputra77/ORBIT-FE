@@ -31,6 +31,7 @@ import {
   getServiceBulletin,
   getServiceBulletinEes,
   getServiceBulletinPdfUrl,
+  getEesUpdateErrorMessage,
   updateServiceBulletinEes,
   type EesApprovalState,
   type ServiceBulletinEesDocument,
@@ -434,13 +435,18 @@ export function EesRevisionPage({
     }
     setSaving(true);
     try {
-      await updateServiceBulletinEes(sourceSbId, payload());
+      await updateServiceBulletinEes(sourceSbId, payload(), document);
       const latest = await getServiceBulletinEes(sourceSbId);
       if (latest.status === "available") setDocument(latest.data);
       if (showToast) toast.success("Perubahan EES berhasil disimpan ke backend.");
       return latest.status === "available" ? latest.data : document;
     } catch (caught) {
-      toast.error(apiMessage(caught, "Revisi EES gagal disimpan."));
+      toast.error(
+        getEesUpdateErrorMessage(
+          caught,
+          apiMessage(caught, "Revisi EES gagal disimpan."),
+        ),
+      );
       return null;
     } finally {
       setSaving(false);

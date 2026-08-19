@@ -344,15 +344,71 @@ export async function generateServiceBulletinEes(
   return response.data;
 }
 
+const EES_EDIT_LOCKED_MESSAGE =
+  "EES sedang atau sudah selesai diproses approval dan tidak dapat diubah dari EES Generator.";
+
+export class EesEditLockedError extends Error {
+  constructor(message = EES_EDIT_LOCKED_MESSAGE) {
+    super(message);
+    this.name = "EesEditLockedError";
+  }
+}
+
+export function getEesEditBlockReason(
+  document?: ServiceBulletinEesDocument | null,
+) {
+  if (document?.permissions?.canEdit !== false) return null;
+
+  const status = document.reviewStatus?.trim().toUpperCase();
+  if (status === "APPROVED") {
+    return "EES sudah disetujui dan hanya dapat dilihat atau diekspor.";
+  }
+  if (status === "REJECTED" || status === "RETURNED") {
+    return document.permissions?.canResubmit
+      ? "EES harus diperbarui melalui halaman Revision sebelum dikirim ulang."
+      : "EES hanya dapat direvisi oleh maker awal atau Administrator.";
+  }
+
+  return EES_EDIT_LOCKED_MESSAGE;
+}
+
+export function getEesUpdateErrorMessage(
+  error: unknown,
+  fallback = "Perubahan EES tidak dapat disimpan.",
+) {
+  if (error instanceof EesEditLockedError) return error.message;
+  if (!axios.isAxiosError(error)) return fallback;
+
+  const payload = isRecord(error.response?.data) ? error.response?.data : {};
+  const message = nullableString(
+    payload.details ?? payload.message ?? payload.error,
+  );
+
+  if (message) return message;
+  if (error.response?.status === 409) return EES_EDIT_LOCKED_MESSAGE;
+  return fallback;
+}
+
 export async function updateServiceBulletinEes(
   id: string,
   validatedPayload: EesValidatedPayload,
+  currentDocument?: ServiceBulletinEesDocument | null,
 ) {
-  const response = await axiosClient.patch(
-    `/service-bulletins/${encodeURIComponent(id)}/ees`,
-    { validatedPayload },
-  );
-  return response.data;
+  const blockedReason = getEesEditBlockReason(currentDocument);
+  if (blockedReason) throw new EesEditLockedError(blockedReason);
+
+  try {
+    const response = await axiosClient.patch(
+      `/service-bulletins/${encodeURIComponent(id)}/ees`,
+      { validatedPayload },
+    );
+    return response.data;
+  } catch (error) {
+    if (axios.isAxiosError(error) && error.response?.status === 409) {
+      throw new EesEditLockedError(getEesUpdateErrorMessage(error));
+    }
+    throw error;
+  }
 }
 
 export function getServiceBulletinPdfUrl(id: string, mode: "view" | "download") {

@@ -1,19 +1,16 @@
 "use client";
 
 import { useState } from 'react';
-import { ListChecks, Sparkles, Loader2, FileDown, CheckCircle2 } from 'lucide-react';
+import { ListChecks, Loader2, FileDown } from 'lucide-react';
 import { engines } from '../../../data/mockData';
-import { useApp } from '../context/AppContext';
 
 export default function GTLGeneratorPage() {
   const [engine, setEngine] = useState(engines[0].esn);
   const [generating, setGenerating] = useState(false);
   const [generated, setGenerated] = useState(false);
-  const { openAIPanel } = useApp();
 
   const handleGenerate = () => {
     setGenerating(true);
-    openAIPanel(`Generate GTL for ${engine}`);
     setTimeout(() => { setGenerating(false); setGenerated(true); }, 2000);
   };
 
@@ -24,9 +21,6 @@ export default function GTLGeneratorPage() {
           <h1 className="text-foreground mb-0.5">GTL Generator</h1>
           <p className="text-sm text-muted-foreground">Generate Ground Test and Limitation documents for engine maintenance visits.</p>
         </div>
-        <button onClick={() => openAIPanel(`Generate GTL document for ${engine}`)} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white" style={{ background: 'linear-gradient(135deg, #0242DB, #00C2FF)' }}>
-          <Sparkles size={14} /> AI Generate GTL
-        </button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

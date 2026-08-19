@@ -56,6 +56,8 @@ import {
   getServiceBulletin,
   generateServiceBulletinEes,
   getServiceBulletinEes,
+  getEesEditBlockReason,
+  getEesUpdateErrorMessage,
   getServiceBulletinPdfUrl,
   getServiceBulletinAiSummary,
   useServiceBulletinApplicability,
@@ -1547,9 +1549,21 @@ function Step1SelectSB({
         ...nextData,
         summarized,
       });
+
+      const editBlockReason = getEesEditBlockReason(eesResult.data);
+      if (editBlockReason) {
+        toast.error(editBlockReason);
+        return;
+      }
+
       onNext(nextData);
-    } catch {
-      toast.error("EES tidak dapat disiapkan. Silakan coba Continue kembali.");
+    } catch (caughtError) {
+      toast.error(
+        getEesUpdateErrorMessage(
+          caughtError,
+          "EES tidak dapat disiapkan. Silakan coba Continue kembali.",
+        ),
+      );
     } finally {
       setPreparingEes(false);
     }
@@ -2775,6 +2789,7 @@ function Step2SelectCategory({
         await updateServiceBulletinEes(
           sb.backendId,
           createValidatedEesPayload(nextData),
+          activeGeneratedEesDocument,
         );
         const refreshedEes = await getServiceBulletinEes(sb.backendId);
         onNext({
@@ -2785,8 +2800,13 @@ function Step2SelectCategory({
           eesPatchedAtAiReview: true,
         });
         toast.success("Citilink review fields saved to the EES draft.");
-      } catch {
-        toast.error("Citilink review fields could not be saved. Please try again.");
+      } catch (caughtError) {
+        toast.error(
+          getEesUpdateErrorMessage(
+            caughtError,
+            "Citilink review fields could not be saved. Please try again.",
+          ),
+        );
       } finally {
         setSavingAiReview(false);
       }
@@ -3216,7 +3236,11 @@ function Step3Applicability({
       );
 
       if ((data.isManualCategory || hasEditedEsn) && !data.eesPatchedAtAiReview) {
-        await updateServiceBulletinEes(backendId, createValidatedEesPayload(data));
+        await updateServiceBulletinEes(
+          backendId,
+          createValidatedEesPayload(data),
+          generatedDocument,
+        );
       }
 
       // The EES document was prepared in Step 1. Step 4 renders the live PDF
@@ -3224,8 +3248,13 @@ function Step3Applicability({
       // GET /ees is needed during this transition.
       onNext(applicabilityResult, generatedDocument);
       toast.success("Opening the selected EES PDF template.");
-    } catch {
-      toast.error("EES changes could not be prepared for preview. Please try again.");
+    } catch (caughtError) {
+      toast.error(
+        getEesUpdateErrorMessage(
+          caughtError,
+          "EES changes could not be prepared for preview. Please try again.",
+        ),
+      );
     } finally {
       setIsGeneratingEes(false);
     }
@@ -3822,6 +3851,14 @@ function Step4PreviewOnlyReview({
     creatorSignatureName: signatureFile?.name || ees?.creatorSignatureName,
     creatorSignatureFile: signatureFile || ees?.creatorSignatureFile,
   };
+  const persistedEesDocument = currentEES.generatedEesDocument as
+    | ServiceBulletinEesDocument
+    | null
+    | undefined;
+  const eesEditBlockReason = getEesEditBlockReason(persistedEesDocument)
+    ?? (approvalSubmitted
+      ? "EES sedang diproses approval. Perubahan isi dinonaktifkan sampai dokumen dikembalikan untuk revisi."
+      : null);
 
   const approvalEesId = String(
     currentEES.generatedEesDocument?.id
@@ -3858,6 +3895,12 @@ function Step4PreviewOnlyReview({
     : "";
 
   const confirmManualEdit = () => {
+    if (eesEditBlockReason) {
+      toast.error(eesEditBlockReason);
+      setShowManualEditWarning(false);
+      return;
+    }
+
     const auditEntry: ManualEditAudit = {
       event: "AI-generated EES edited manually",
       editedBy: "Ahmad Fikri Ramadhan",
@@ -4066,6 +4109,12 @@ function Step4PreviewOnlyReview({
   const handleFinishEditing = async () => {
     if (isFinishingEdit) return;
 
+    if (eesEditBlockReason) {
+      toast.error(eesEditBlockReason);
+      setManualEditMode(false);
+      return;
+    }
+
     if (presentationSB) {
       setIsFinishingEdit(true);
       await new Promise(resolve => setTimeout(resolve, 700));
@@ -4101,7 +4150,11 @@ function Step4PreviewOnlyReview({
           }
         : currentEES;
       const validatedPayload = createValidatedEesPayload(patchSource);
-      await updateServiceBulletinEes(backendId, validatedPayload);
+      await updateServiceBulletinEes(
+        backendId,
+        validatedPayload,
+        persistedEesDocument,
+      );
       const refreshedResult = await getServiceBulletinEes(backendId);
       if (refreshedResult.status !== "available") {
         throw new Error("Updated EES document was not found.");
@@ -4122,8 +4175,13 @@ function Step4PreviewOnlyReview({
       setManualEditMode(false);
       setPdfVersion(version => version + 1);
       toast.success("EES updated and PDF preview refreshed.");
-    } catch {
-      toast.error("EES changes could not be saved to the backend.");
+    } catch (caughtError) {
+      toast.error(
+        getEesUpdateErrorMessage(
+          caughtError,
+          "EES changes could not be saved to the backend.",
+        ),
+      );
     } finally {
       setIsFinishingEdit(false);
     }
@@ -4192,14 +4250,15 @@ function Step4PreviewOnlyReview({
           </div>
           <button
             onClick={() => manualEditMode ? void handleFinishEditing() : setShowManualEditWarning(true)}
-            disabled={isFinishingEdit}
+            disabled={isFinishingEdit || Boolean(eesEditBlockReason)}
+            title={eesEditBlockReason ?? undefined}
             className={`flex shrink-0 items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition-all disabled:opacity-60 ${docViewerOpen ? "w-full justify-center" : "ml-auto"}`}
             style={manualEditMode
               ? { background: "#10B981", color: "white", border: "1px solid #10B981" }
               : { background: "#0242DB", color: "white", boxShadow: "0 4px 12px rgba(2,66,219,0.22)" }}
           >
-            {isFinishingEdit ? <Loader2 size={12} className="animate-spin" /> : manualEditMode ? <Check size={12} /> : <Edit3 size={12} />}
-            {isFinishingEdit ? "Updating EES..." : manualEditMode ? "Finish Editing" : "Edit EES"}
+            {isFinishingEdit ? <Loader2 size={12} className="animate-spin" /> : eesEditBlockReason ? <Shield size={12} /> : manualEditMode ? <Check size={12} /> : <Edit3 size={12} />}
+            {isFinishingEdit ? "Updating EES..." : eesEditBlockReason ? "EES Locked" : manualEditMode ? "Finish Editing" : "Edit EES"}
           </button>
         </div>
         <div className="inline-flex border-b-2 border-[#0242DB] px-3 py-2 text-xs font-semibold text-[#0242DB]">
@@ -4208,6 +4267,17 @@ function Step4PreviewOnlyReview({
       </div>
 
       <div className={`flex-1 space-y-4 overflow-y-auto ${docViewerOpen ? "px-3 py-3" : "px-5 py-4"}`}>
+        {eesEditBlockReason && (
+          <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/35 bg-amber-500/[0.08] px-3 py-2.5">
+            <Shield size={14} className="mt-0.5 shrink-0 text-amber-600" />
+            <div>
+              <p className="text-xs font-semibold text-foreground">EES locked for editing</p>
+              <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                {eesEditBlockReason}
+              </p>
+            </div>
+          </div>
+        )}
         {manualEditAudit && (
           <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2.5">
             <History size={13} className="mt-0.5 shrink-0 text-amber-500" />

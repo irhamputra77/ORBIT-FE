@@ -1,10 +1,9 @@
 "use client";
 
 import { useState } from 'react';
-import { AreaChart, Area, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
-import { Droplets, AlertTriangle, Sparkles, FileDown, TrendingUp } from 'lucide-react';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
+import { AlertTriangle, FileDown } from 'lucide-react';
 import { oilConsumptionData, engines } from '../../../data/mockData';
-import { useApp } from '../context/AppContext';
 
 const extendedData = [
   ...oilConsumptionData,
@@ -14,7 +13,6 @@ const extendedData = [
 
 export default function OilConsumptionPage() {
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
-  const { openAIPanel } = useApp();
 
   return (
     <div className="p-6 max-w-[1400px] mx-auto">
@@ -24,9 +22,6 @@ export default function OilConsumptionPage() {
           <p className="text-sm text-muted-foreground">Fleet-wide oil consumption trending and threshold monitoring.</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => openAIPanel('Analyze oil consumption trends and identify engines exceeding threshold')} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white" style={{ background: 'linear-gradient(135deg, #0242DB, #00C2FF)' }}>
-            <Sparkles size={14} /> AI Analysis
-          </button>
           <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-foreground border hover:bg-accent transition-colors" style={{ border: '1px solid var(--border)' }}>
             <FileDown size={13} /> Export
           </button>

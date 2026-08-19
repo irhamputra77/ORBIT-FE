@@ -1,14 +1,12 @@
 "use client";
 
 import { useState } from 'react';
-import { Eye, AlertTriangle, FileDown, Sparkles, ChevronRight, Plus } from 'lucide-react';
-import { findings, engines } from '../../../data/mockData';
+import { AlertTriangle, FileDown, Plus } from 'lucide-react';
+import { findings } from '../../../data/mockData';
 import { formatDateTime } from '@/lib/date-time';
-import { useApp } from '../context/AppContext';
 
 export default function OnWatchPage() {
-  const [selected, setSelected] = useState<any>(findings[0]);
-  const { openAIPanel } = useApp();
+  const [selected, setSelected] = useState(findings[0]);
 
   const sevColor = (s: string) => s === 'Critical' ? '#EF4444' : s === 'High' ? '#F59E0B' : s === 'Medium' ? '#0242DB' : '#6B7280';
 
@@ -22,9 +20,6 @@ export default function OnWatchPage() {
         <div className="flex gap-2">
           <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-foreground border hover:bg-accent transition-colors" style={{ border: '1px solid var(--border)' }}>
             <Plus size={13} /> Add Finding
-          </button>
-          <button onClick={() => openAIPanel('Generate On Watch report for all active findings')} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white" style={{ background: 'linear-gradient(135deg, #0242DB, #00C2FF)' }}>
-            <Sparkles size={14} /> Generate Report
           </button>
         </div>
       </div>
@@ -123,9 +118,6 @@ export default function OnWatchPage() {
               </div>
 
               <div className="flex gap-2">
-                <button onClick={() => openAIPanel(`Analyze finding ${selected.id} and recommend resolution`)} className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium text-white" style={{ background: 'linear-gradient(135deg, #0242DB, #00C2FF)' }}>
-                  <Sparkles size={14} /> AI Analyze
-                </button>
                 <button className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm text-foreground border hover:bg-accent transition-colors" style={{ border: '1px solid var(--border)' }}>
                   <FileDown size={14} /> Export Finding
                 </button>

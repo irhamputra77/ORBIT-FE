@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from 'react';
-import { Search, Sparkles, FileText, GitBranch, Cpu, BookOpen, ChevronRight, Loader2, ExternalLink } from 'lucide-react';
-import { useApp } from '../context/AppContext';
+import { Search, Sparkles, FileText, GitBranch, Cpu, BookOpen, Loader2, ExternalLink } from 'lucide-react';
 
 const sampleResults = [
   {
@@ -51,7 +50,6 @@ export default function SemanticSearchPage() {
   const [results, setResults] = useState<typeof sampleResults>([]);
   const [searching, setSearching] = useState(false);
   const [searched, setSearched] = useState(false);
-  const { openAIPanel } = useApp();
 
   const handleSearch = (q = query) => {
     if (!q.trim()) return;
@@ -139,15 +137,8 @@ export default function SemanticSearchPage() {
         <div>
           <div className="flex items-center justify-between mb-4">
             <div className="text-sm text-muted-foreground">
-              <span className="font-semibold text-foreground">{results.length}</span> results for "<span className="text-[#0242DB]">{query}</span>"
+              <span className="font-semibold text-foreground">{results.length}</span> results for &quot;<span className="text-[#0242DB]">{query}</span>&quot;
             </div>
-            <button
-              onClick={() => openAIPanel(`Summarize semantic search results for: ${query}`)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-white"
-              style={{ background: 'linear-gradient(135deg, #0242DB, #00C2FF)' }}
-            >
-              <Sparkles size={12} /> AI Summarize Results
-            </button>
           </div>
 
           <div className="space-y-3">

@@ -7,7 +7,13 @@ import {
 } from "@/lib/http/backendRoute";
 
 const ID_PATTERN = /^[a-zA-Z0-9_-]{1,128}$/;
-const JSON_RESOURCES = new Set(["ai-summary", "applicability", "ees", "relations"]);
+const JSON_RESOURCES = new Set([
+  "ai-summary",
+  "applicability",
+  "compliance-status",
+  "ees",
+  "relations",
+]);
 const BINARY_RESOURCES = new Set(["view", "download"]);
 const POST_RESOURCES = new Set(["generate-ees", "relations"]);
 const PATCH_RESOURCES = new Set(["ees"]);
@@ -46,7 +52,10 @@ export async function GET(
   try {
     const response = await backendApi.get(
       `/api/service-bulletins/${encodeURIComponent(id)}/${resource}`,
-      { headers: { Authorization: authorization } },
+      {
+        headers: { Authorization: authorization },
+        ...(resource === "compliance-status" ? { timeout: 60_000 } : {}),
+      },
     );
     return apiJson(response.data);
   } catch (error) {

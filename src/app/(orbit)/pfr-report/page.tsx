@@ -1,9 +1,7 @@
 "use client";
 
-import { useState } from 'react';
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
-import { Activity, Sparkles, FileDown, TrendingUp } from 'lucide-react';
-import { useApp } from '../context/AppContext';
+import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
+import { FileDown } from 'lucide-react';
 
 const pfrData = [
   { month: 'Jan', PFR: 0.032, EER: 0.018, target: 0.050 },
@@ -15,8 +13,6 @@ const pfrData = [
 ];
 
 export default function PFRReportPage() {
-  const { openAIPanel } = useApp();
-
   return (
     <div className="p-6 max-w-[1400px] mx-auto">
       <div className="flex items-center justify-between mb-6">
@@ -25,9 +21,6 @@ export default function PFRReportPage() {
           <p className="text-sm text-muted-foreground">Pilot Flight Report and Engine Event Code analysis for the fleet.</p>
         </div>
         <div className="flex gap-2">
-          <button onClick={() => openAIPanel('Generate PFR/EEC analysis for the fleet')} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white" style={{ background: 'linear-gradient(135deg, #0242DB, #00C2FF)' }}>
-            <Sparkles size={14} /> AI Analysis
-          </button>
           <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-foreground border hover:bg-accent transition-colors" style={{ border: '1px solid var(--border)' }}>
             <FileDown size={13} /> Export PDF
           </button>

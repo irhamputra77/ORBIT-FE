@@ -1,8 +1,7 @@
 "use client";
 
 import { useState } from 'react';
-import { ListChecks, ChevronRight, Sparkles, CheckCircle2 } from 'lucide-react';
-import { useApp } from '../context/AppContext';
+import { ListChecks, CheckCircle2 } from 'lucide-react';
 
 const eiItems = [
   { id: 'EI-2026-001', title: 'VSV System Monitoring Program', engine: 'CFM56-7B', status: 'Active', category: 'Performance', interval: 'Monthly' },
@@ -13,8 +12,7 @@ const eiItems = [
 ];
 
 export default function EIMappingPage() {
-  const [selected, setSelected] = useState<any>(eiItems[0]);
-  const { openAIPanel } = useApp();
+  const [selected, setSelected] = useState(eiItems[0]);
 
   return (
     <div className="p-6 max-w-[1400px] mx-auto">
@@ -23,9 +21,6 @@ export default function EIMappingPage() {
           <h1 className="text-foreground mb-0.5">EI Mapping</h1>
           <p className="text-sm text-muted-foreground">Engineering Instructions and monitoring programs mapping.</p>
         </div>
-        <button onClick={() => openAIPanel('Review all active Engineering Instructions')} className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium text-white" style={{ background: 'linear-gradient(135deg, #0242DB, #00C2FF)' }}>
-          <Sparkles size={14} /> AI Review
-        </button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

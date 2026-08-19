@@ -1,9 +1,8 @@
 "use client";
 
 import { useState } from 'react';
-import { Wrench, Sparkles, ChevronRight, CheckCircle2, Loader2, FileDown, Plus, Trash2 } from 'lucide-react';
+import { Wrench, CheckCircle2, Loader2, FileDown } from 'lucide-react';
 import { engines, findings, serviceBulletins } from '../../../data/mockData';
-import { useApp } from '../context/AppContext';
 
 const llpItems = [
   { part: 'Fan Disk Stage 1', cycles: 24100, limit: 30000, pct: 80 },
@@ -18,14 +17,12 @@ export default function WorkscopeGeneratorPage() {
   const [generated, setGenerated] = useState(false);
   const [selectedFindings, setSelectedFindings] = useState<string[]>([]);
   const [selectedSBs, setSelectedSBs] = useState<string[]>([]);
-  const { openAIPanel } = useApp();
 
   const toggleFinding = (id: string) => setSelectedFindings(prev => prev.includes(id) ? prev.filter(f => f !== id) : [...prev, id]);
   const toggleSB = (id: string) => setSelectedSBs(prev => prev.includes(id) ? prev.filter(s => s !== id) : [...prev, id]);
 
   const handleGenerate = () => {
     setGenerating(true);
-    openAIPanel(`Generate workscope for ${engine} with ${selectedFindings.length} findings and ${selectedSBs.length} SBs`);
     setTimeout(() => { setGenerating(false); setGenerated(true); }, 2500);
   };
 
