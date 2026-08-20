@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Sun, Moon, ChevronDown, Search, X, Mail, FileText, Loader2 } from 'lucide-react';
+import { Sun, Moon, ChevronDown, Search, X, Mail, FileText, Loader2, Building2, UserRound } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { usePathname } from 'next/navigation';
 import { useApp } from '../../app/(orbit)/context/AppContext';
@@ -8,7 +8,7 @@ import { useShopVisitReportUploadTask } from '@/features/database/hooks/useShopV
 import { useEdsUploadTask } from '@/features/database/hooks/useEdsUploadTask';
 import { useSmoothNavigation } from './SmoothNavigationProvider';
 import { NotificationCenter } from '@/features/notifications';
-import type { AuthenticatedUser } from '@/features/authentication';
+import { useCurrentUserProfile } from '@/features/user-profile';
 
 function getInitials(name: string) {
   return name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
@@ -28,25 +28,17 @@ export function Header() {
   const svrUpload = useShopVisitReportUploadTask();
   const edsUpload = useEdsUploadTask();
   const [profileOpen, setProfileOpen] = useState(false);
-  const [authenticatedUser, setAuthenticatedUser] = useState<AuthenticatedUser | null>(null);
   const profileRef = useRef<HTMLDivElement>(null);
+  const profileQuery = useCurrentUserProfile();
 
-  const displayName = authenticatedUser?.username || authenticatedUser?.email || "Signed-in user";
-  const displayRole = authenticatedUser?.role
-    ? authenticatedUser.role.replaceAll("_", " ")
+  const displayName = profileQuery.data?.name
+    || profileQuery.data?.username
+    || profileQuery.data?.email
+    || "Signed-in user";
+  const displayRole = profileQuery.data?.role
+    ? profileQuery.data.role.replaceAll("_", " ")
     : "Authenticated user";
   const initials = getInitials(displayName);
-
-  useEffect(() => {
-    const serialized = window.localStorage.getItem("orbit_user")
-      || window.sessionStorage.getItem("orbit_user");
-    if (!serialized) return;
-    try {
-      setAuthenticatedUser(JSON.parse(serialized) as AuthenticatedUser);
-    } catch {
-      setAuthenticatedUser(null);
-    }
-  }, []);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -286,7 +278,8 @@ export function Header() {
               </div>
               <div className="space-y-1.5 text-xs">
                 {[
-                  { icon: Mail, label: 'Email', value: authenticatedUser?.email || '—' },
+                  { icon: Mail, label: 'Email', value: profileQuery.data?.email || '—' },
+                  { icon: Building2, label: 'Operator', value: profileQuery.data?.operator?.name || '—' },
                 ].map(item => (
                   <div key={item.label} className="flex items-center gap-2.5">
                     <item.icon size={11} className="text-muted-foreground shrink-0" />
@@ -295,6 +288,17 @@ export function Header() {
                   </div>
                 ))}
               </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setProfileOpen(false);
+                  router.push('/profile');
+                }}
+                className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-blue-700 px-3 py-2.5 text-xs font-semibold text-white transition-colors hover:bg-blue-800"
+              >
+                <UserRound size={13} />
+                View Full Profile
+              </button>
             </div>
 
           </div>

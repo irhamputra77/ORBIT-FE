@@ -380,12 +380,6 @@ function isGeneratedServiceBulletin(sb: DBServiceBulletin) {
   return sb.draftStatus.toUpperCase() === "GENERATED" || Boolean(sb.generatedEesId);
 }
 
-function hasProcessedEes(sb: DBServiceBulletin) {
-  return isGeneratedServiceBulletin(sb)
-    || Boolean(sb.eesNumber?.trim())
-    || Boolean(sb.eesReviewStatus?.trim());
-}
-
 function Step1SelectionLoadingState() {
   return (
     <motion.div
@@ -887,7 +881,7 @@ function Step1SelectSB({
       sortBy: "receivedAt",
       sortOrder: "desc",
     },
-    { fetchAll: true, enabled: true, pendingOnly: true },
+    { fetchAll: true, enabled: true },
   );
   const uploadServiceBulletin = useUploadServiceBulletin();
   const [searchQuery, setSearchQuery] = useState("");
@@ -934,13 +928,7 @@ function Step1SelectSB({
     () => serviceBulletinQuery.items.map(toWorkflowServiceBulletin),
     [serviceBulletinQuery.items],
   );
-  const availableBackendServiceBulletins = useMemo(
-    () => backendServiceBulletins.filter(sb => !hasProcessedEes(sb)),
-    [backendServiceBulletins],
-  );
-  const hiddenProcessedEesCount = backendServiceBulletins.length
-    - availableBackendServiceBulletins.length;
-  const allSBs = availableBackendServiceBulletins;
+  const allSBs = backendServiceBulletins;
   const uniqueFleets = [...new Set(allSBs.map((sb) => sb.fleet))];
   const uniqueEngines = [...new Set(allSBs.map((sb) => sb.engineType))];
   const visibleSBs = allSBs.filter((sb) => {
@@ -1533,7 +1521,7 @@ function Step1SelectSB({
             Main Database — Service Bulletins
           </span>
           <span className="ml-auto text-[9px] text-white/60">
-            {`${visibleSBs.length} available${hiddenProcessedEesCount ? ` · ${hiddenProcessedEesCount} processed hidden` : ""}`}
+            {`${visibleSBs.length} shown · ${allSBs.length} received from API`}
           </span>
         </motion.div>
 
@@ -1627,11 +1615,9 @@ function Step1SelectSB({
               transition={{ duration: 0.28 }}
               className="px-3 py-8 text-center text-[11px] text-muted-foreground"
             >
-              {allSBs.length === 0 && hiddenProcessedEesCount > 0
-                ? "All Service Bulletins already have an EES process."
-                : allSBs.length === 0
-                  ? "No Service Bulletins were returned by the API."
-                  : "No Service Bulletins match the selected filters."}
+              {allSBs.length === 0
+                ? "No Service Bulletins were returned by the API."
+                : "No Service Bulletins match the selected filters."}
             </motion.div>
           )}
         </div>
