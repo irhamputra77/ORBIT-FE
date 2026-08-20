@@ -1,8 +1,7 @@
 "use client";
 
 import axios from "axios";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { usePresentationApprovalScenarios } from "@/lib/presentation/ees-approval-scenario";
+import { useCallback, useEffect, useState } from "react";
 import {
   getEESReviewHistory,
   type EESHistoryPagination,
@@ -11,64 +10,18 @@ import type { EESReviewRecord } from "../types/review";
 
 type UseEESReviewHistoryOptions = {
   enabled?: boolean;
-  initialRecords?: EESReviewRecord[];
 };
 
 export function useEESReviewHistory({
   enabled = true,
-  initialRecords = [],
 }: UseEESReviewHistoryOptions = {}) {
-  const approvalScenarios = usePresentationApprovalScenarios();
-  const presentationRecords = useMemo<EESReviewRecord[]>(
-    () => approvalScenarios.map(scenario => ({
-      id: scenario.id,
-      sourceSbId: scenario.sourceSbId,
-      eesNumber: scenario.eesNumber,
-      bulletinNumber: scenario.bulletinNumber,
-      revision: scenario.bulletinNumber.match(/\bR\d+\b/i)?.[0] ?? "—",
-      fleet: scenario.fleet,
-      engineType: scenario.engineType,
-      operatorCode: scenario.operatorCode,
-      operatorName: scenario.operatorName,
-      complianceCategory: scenario.category,
-      referredToName: scenario.assignedToName,
-      referredToRole: scenario.reviewerTarget === "MANAGER"
-        ? "Manager"
-        : "Second Engineer",
-      eesCategory: `Category ${scenario.category}`,
-      categorySystem: "ORBIT",
-      reviewDate: scenario.reviewedAt ?? scenario.createdAt,
-      submittedDate: scenario.createdAt,
-      preparedBy: scenario.creatorName,
-      checkedBy: scenario.reviewedBy ?? scenario.assignedToName,
-      status: scenario.status,
-      applicability: "See EES document",
-      affectedEngines: "See applicability result",
-      dueCompliance: "See EES document",
-      references: scenario.references,
-      remarks: scenario.reviewComment
-        ?? `Pending review by ${scenario.assignedToName}.`,
-      taskType: scenario.taskType,
-      evaluations: [],
-    })),
-    [approvalScenarios],
-  );
-  const dummyRecords = useMemo(
-    () => [
-      ...presentationRecords,
-      ...initialRecords.filter(
-        record => !presentationRecords.some(scenario => scenario.id === record.id),
-      ),
-    ],
-    [initialRecords, presentationRecords],
-  );
   const initialPagination: EESHistoryPagination = {
     page: 1,
     limit: 20,
-    total: initialRecords.length,
-    totalPages: initialRecords.length ? 1 : 0,
+    total: 0,
+    totalPages: 0,
   };
-  const [records, setRecords] = useState<EESReviewRecord[]>(initialRecords);
+  const [records, setRecords] = useState<EESReviewRecord[]>([]);
   const [pagination, setPagination] = useState(initialPagination);
   const [page, setPage] = useState(1);
   const [isLoading, setIsLoading] = useState(enabled);
@@ -109,17 +62,11 @@ export function useEESReviewHistory({
   const retry = useCallback(() => setRequestVersion((version) => version + 1), []);
 
   return {
-    records: enabled ? records : dummyRecords,
-    pagination: enabled
-      ? pagination
-      : {
-          ...initialPagination,
-          total: dummyRecords.length,
-          totalPages: dummyRecords.length ? 1 : 0,
-        },
+    records,
+    pagination,
     setPage,
-    isLoading: enabled ? isLoading : false,
-    error: enabled ? error : null,
+    isLoading: enabled && isLoading,
+    error,
     retry,
   };
 }

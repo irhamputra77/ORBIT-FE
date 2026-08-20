@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Sun, Moon, ChevronDown, Search, X, User, Mail, Shield, FileText, Loader2, Database, FlaskConical } from 'lucide-react';
+import { Sun, Moon, ChevronDown, Search, X, Mail, FileText, Loader2 } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { usePathname } from 'next/navigation';
 import { useApp } from '../../app/(orbit)/context/AppContext';
@@ -8,22 +8,7 @@ import { useShopVisitReportUploadTask } from '@/features/database/hooks/useShopV
 import { useEdsUploadTask } from '@/features/database/hooks/useEdsUploadTask';
 import { useSmoothNavigation } from './SmoothNavigationProvider';
 import { NotificationCenter } from '@/features/notifications';
-
-const TEAM = [
-  { name: 'Davy Febrynzki', role: 'Manager', fleet: '—', isManager: true },
-  { name: 'Rahmat Wintoloaji', role: 'Senior Development Engineer', fleet: 'A330 / ATR72' },
-  { name: 'Muhammad Fauzan', role: 'Development Engineer', fleet: 'A320' },
-  { name: 'Marcellino V. Y. Pangaribuan', role: 'Development Engineer', fleet: 'B737 NG' },
-  { name: 'Dewa Gede Surya Eka Natha', role: 'Development Engineer', fleet: 'A320' },
-  { name: 'Muhammad Umar Abdul Aziz', role: 'Development Engineer', fleet: 'B777' },
-  { name: 'Nathanael', role: 'Development Engineer', fleet: 'A330' },
-  { name: 'Ryann Argadiraksa', role: 'Development Engineer', fleet: 'A330' },
-  { name: 'M. Badruz Zaman', role: 'Development Engineer', fleet: 'A320 / ATR72' },
-  { name: 'Khodijah Nurhalimah', role: 'Development Engineer', fleet: 'B777' },
-  { name: 'Victo Alfritzy Aden', role: 'Development Engineer', fleet: 'B737 NG' },
-  { name: 'Abdunnafi Naufal Mumtazi', role: 'Development Engineer', fleet: 'B777' },
-  { name: 'Ahmad Fikri Ramadhan', role: 'Development Engineer', fleet: 'B737 NG', isSelf: true },
-];
+import type { AuthenticatedUser } from '@/features/authentication';
 
 function getInitials(name: string) {
   return name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
@@ -38,14 +23,30 @@ export function Header() {
     setGlobalSearchOpen,
     userRole,
     setUserRole,
-    dataSourceMode,
-    setDataSourceMode,
   } = useApp();
   const serviceBulletinUpload = useUploadServiceBulletin();
   const svrUpload = useShopVisitReportUploadTask();
   const edsUpload = useEdsUploadTask();
   const [profileOpen, setProfileOpen] = useState(false);
+  const [authenticatedUser, setAuthenticatedUser] = useState<AuthenticatedUser | null>(null);
   const profileRef = useRef<HTMLDivElement>(null);
+
+  const displayName = authenticatedUser?.username || authenticatedUser?.email || "Signed-in user";
+  const displayRole = authenticatedUser?.role
+    ? authenticatedUser.role.replaceAll("_", " ")
+    : "Authenticated user";
+  const initials = getInitials(displayName);
+
+  useEffect(() => {
+    const serialized = window.localStorage.getItem("orbit_user")
+      || window.sessionStorage.getItem("orbit_user");
+    if (!serialized) return;
+    try {
+      setAuthenticatedUser(JSON.parse(serialized) as AuthenticatedUser);
+    } catch {
+      setAuthenticatedUser(null);
+    }
+  }, []);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -205,29 +206,6 @@ export function Header() {
         )}
       </AnimatePresence>
 
-      {/* Development Data Source Switch */}
-      <button
-        type="button"
-        onClick={() => setDataSourceMode(dataSourceMode === 'dummy' ? 'backend' : 'dummy')}
-        title={`Using ${dataSourceMode} data. Click to switch to ${dataSourceMode === 'dummy' ? 'backend' : 'dummy'} data.`}
-        className="flex shrink-0 items-center gap-2 rounded-lg border px-3 py-1.5 text-[11px] font-semibold transition-all hover:-translate-y-px"
-        style={dataSourceMode === 'dummy'
-          ? {
-              background: 'rgba(245,158,11,0.1)',
-              borderColor: 'rgba(245,158,11,0.35)',
-              color: '#D97706',
-            }
-          : {
-              background: 'rgba(16,185,129,0.1)',
-              borderColor: 'rgba(16,185,129,0.35)',
-              color: '#059669',
-            }}
-      >
-        {dataSourceMode === 'dummy' ? <FlaskConical size={13} /> : <Database size={13} />}
-        <span>{dataSourceMode === 'dummy' ? 'Dummy Data' : 'Backend Data'}</span>
-        <span className="h-1.5 w-1.5 rounded-full bg-current" />
-      </button>
-
       {/* Role Switcher */}
       <div className="flex items-center p-0.5 rounded-lg mr-2" style={{ background: 'var(--muted)', border: '1px solid var(--border)' }}>
         <button
@@ -271,14 +249,14 @@ export function Header() {
             className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-semibold shrink-0"
             style={{ background: 'linear-gradient(135deg, #0E1B93, #0242DB)' }}
           >
-            AFR
+            {initials}
           </div>
           <div className="hidden min-w-0 xl:block">
             <div className="whitespace-nowrap text-xs font-medium leading-none text-foreground">
-              Ahmad Fikri Ramadhan
+              {displayName}
             </div>
             <div className="mt-1 whitespace-nowrap text-[10px] leading-none text-muted-foreground">
-              Development Engineer · B737 NG
+              {displayRole}
             </div>
           </div>
           <ChevronDown size={12} className="text-muted-foreground" style={{ transform: profileOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
@@ -299,18 +277,16 @@ export function Header() {
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-12 h-12 rounded-xl flex items-center justify-center text-white font-bold text-sm shrink-0"
                   style={{ background: 'linear-gradient(135deg, #0E1B93, #0242DB)' }}>
-                  AFR
+                  {initials}
                 </div>
                 <div>
-                  <div className="text-sm font-bold text-foreground">Ahmad Fikri Ramadhan</div>
-                  <div className="text-[10px] text-muted-foreground">Development Engineer</div>
+                  <div className="text-sm font-bold text-foreground">{displayName}</div>
+                  <div className="text-[10px] capitalize text-muted-foreground">{displayRole.toLowerCase()}</div>
                 </div>
               </div>
               <div className="space-y-1.5 text-xs">
                 {[
-                  { icon: Shield, label: 'Unit', value: 'TEA-2 Powerplant Engineering' },
-                  { icon: User, label: 'Fleet', value: 'B737 NG' },
-                  { icon: Mail, label: 'Email', value: 'fikriramadhan573@gmail.com' },
+                  { icon: Mail, label: 'Email', value: authenticatedUser?.email || '—' },
                 ].map(item => (
                   <div key={item.label} className="flex items-center gap-2.5">
                     <item.icon size={11} className="text-muted-foreground shrink-0" />
@@ -321,45 +297,6 @@ export function Header() {
               </div>
             </div>
 
-            {/* My Team */}
-            <div className="p-4">
-              <div className="text-xs font-bold text-foreground uppercase tracking-wider mb-3">My Team — TEA-2 Powerplant Engineering</div>
-              <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
-                {TEAM.map(member => (
-                  <div
-                    key={member.name}
-                    className="flex items-center gap-2.5 px-2.5 py-2 rounded-lg transition-colors"
-                    style={{
-                      background: member.isSelf ? 'rgba(2,66,219,0.08)' : 'transparent',
-                      border: member.isSelf ? '1px solid rgba(2,66,219,0.15)' : '1px solid transparent',
-                    }}
-                  >
-                    <div
-                      className="w-6 h-6 rounded-full flex items-center justify-center text-white text-[9px] font-semibold shrink-0"
-                      style={{
-                        background: member.isManager
-                          ? 'linear-gradient(135deg, #0E1B93, #0242DB)'
-                          : member.isSelf
-                          ? 'linear-gradient(135deg, #0242DB, #00C2FF)'
-                          : 'var(--muted)',
-                        color: member.isManager || member.isSelf ? 'white' : 'var(--muted-foreground)',
-                      }}
-                    >
-                      {getInitials(member.name)}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-xs font-medium text-foreground truncate flex items-center gap-1.5">
-                        {member.name}
-                        {member.isSelf && <span className="text-[9px] px-1.5 py-0.5 rounded-full font-semibold" style={{ background: '#0242DB18', color: '#0242DB' }}>You</span>}
-                      </div>
-                      <div className="text-[10px] text-muted-foreground truncate">
-                        {member.isManager ? 'Manager' : `${member.role} · ${member.fleet}`}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
           </div>
         )}
       </div>

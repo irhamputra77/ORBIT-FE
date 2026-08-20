@@ -1,8 +1,6 @@
 "use client";
 
-import { createContext, useContext, useState, useEffect, useSyncExternalStore, ReactNode } from 'react';
-
-export type DataSourceMode = 'dummy' | 'backend';
+import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 
 interface AppContextType {
   darkMode: boolean;
@@ -15,41 +13,16 @@ interface AppContextType {
   setGlobalSearchOpen: (open: boolean) => void;
   userRole: 'engineer' | 'manager';
   setUserRole: (role: 'engineer' | 'manager') => void;
-  dataSourceMode: DataSourceMode;
-  setDataSourceMode: (mode: DataSourceMode) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
-const DATA_SOURCE_STORAGE_KEY = 'orbit-data-source-mode';
-const DATA_SOURCE_CHANGE_EVENT = 'orbit:data-source-change';
-
-function getDataSourceSnapshot(): DataSourceMode {
-  const savedMode = window.localStorage.getItem(DATA_SOURCE_STORAGE_KEY);
-  return savedMode === 'backend' ? 'backend' : 'dummy';
-}
-
-function subscribeToDataSourceMode(onStoreChange: () => void) {
-  const notify = () => onStoreChange();
-  window.addEventListener('storage', notify);
-  window.addEventListener(DATA_SOURCE_CHANGE_EVENT, notify);
-
-  return () => {
-    window.removeEventListener('storage', notify);
-    window.removeEventListener(DATA_SOURCE_CHANGE_EVENT, notify);
-  };
-}
 
 export function AppProvider({ children }: { children: ReactNode }) {
   const [darkMode, setDarkMode] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [selectedEngine, setSelectedEngine] = useState<string | null>('CFM56-7B / ESN 962771');
+  const [selectedEngine, setSelectedEngine] = useState<string | null>(null);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
   const [userRole, setUserRole] = useState<'engineer' | 'manager'>('engineer');
-  const dataSourceMode = useSyncExternalStore<DataSourceMode>(
-    subscribeToDataSourceMode,
-    getDataSourceSnapshot,
-    (): DataSourceMode => 'dummy',
-  );
 
   useEffect(() => {
     if (darkMode) {
@@ -75,11 +48,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const toggleDarkMode = () => setDarkMode(d => !d);
   const toggleSidebar = () => setSidebarCollapsed(c => !c);
-  const setDataSourceMode = (mode: DataSourceMode) => {
-    window.localStorage.setItem(DATA_SOURCE_STORAGE_KEY, mode);
-    window.dispatchEvent(new Event(DATA_SOURCE_CHANGE_EVENT));
-  };
-
   return (
     <AppContext.Provider value={{
       darkMode, toggleDarkMode,
@@ -87,7 +55,6 @@ export function AppProvider({ children }: { children: ReactNode }) {
       selectedEngine, setSelectedEngine,
       globalSearchOpen, setGlobalSearchOpen,
       userRole, setUserRole,
-      dataSourceMode, setDataSourceMode,
     }}>
       {children}
     </AppContext.Provider>

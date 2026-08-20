@@ -4,16 +4,13 @@ import axios from "axios";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, ArrowLeft, ChevronRight, FileText, Loader2, Plane, Wrench } from "lucide-react";
-import { useApp } from "@/app/(orbit)/context/AppContext";
 import { formatDateTime } from "@/lib/date-time";
-import { DUMMY_SHOP_VISIT_REPORTS } from "../data/shopVisitReportDummyData";
 import type { EdsListItem } from "../edsTypes";
 import { getEdsList } from "../services/edsApi";
 import { getShopVisitReports } from "../services/shopVisitReportApi";
 import type { ShopVisitReport } from "../types";
 
 export function EngineDetailPage({ esn }: { esn: string }) {
-  const { dataSourceMode } = useApp();
   const [eds, setEds] = useState<EdsListItem[]>([]);
   const [svr, setSvr] = useState<ShopVisitReport[]>([]);
   const [loading, setLoading] = useState(true);
@@ -23,12 +20,6 @@ export function EngineDetailPage({ esn }: { esn: string }) {
     async function load() {
       await Promise.resolve();
       if (controller.signal.aborted) return;
-      if (dataSourceMode === "dummy") {
-        setSvr(DUMMY_SHOP_VISIT_REPORTS.filter(item => item.engineSerialNumber === esn));
-        setEds([]);
-        setLoading(false);
-        return;
-      }
       setLoading(true);
       try {
         const [a, b] = await Promise.all([
@@ -46,7 +37,7 @@ export function EngineDetailPage({ esn }: { esn: string }) {
     }
     void load();
     return () => controller.abort();
-  }, [dataSourceMode, esn]);
+  }, [esn]);
   const engine = useMemo(() => eds[0]?.engine || svr[0]?.engine || null, [eds, svr]);
   const aircraft = eds[0]?.engine?.aircraft || null;
   if (loading) return <div className="flex min-h-[70vh] items-center justify-center gap-2 text-muted-foreground"><Loader2 className="animate-spin" />Loading engine...</div>;

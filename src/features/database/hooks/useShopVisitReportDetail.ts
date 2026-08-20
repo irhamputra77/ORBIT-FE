@@ -2,7 +2,6 @@
 
 import axios from "axios";
 import { useEffect, useState } from "react";
-import { getDummyShopVisitReport } from "../data/shopVisitReportDummyData";
 import { getShopVisitReport } from "../services/shopVisitReportApi";
 import type { ShopVisitReport } from "../types";
 
@@ -17,15 +16,13 @@ function getErrorMessage(error: unknown) {
     : "Detail SVR tidak dapat dimuat.";
 }
 
-export function useShopVisitReportDetail(id: string, useDummyData = false) {
+export function useShopVisitReportDetail(id: string) {
   const [report, setReport] = useState<ShopVisitReport | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [requestVersion, setRequestVersion] = useState(0);
 
   useEffect(() => {
-    if (useDummyData) return;
-
     const controller = new AbortController();
 
     async function load() {
@@ -46,16 +43,9 @@ export function useShopVisitReportDetail(id: string, useDummyData = false) {
 
     void load();
     return () => controller.abort();
-  }, [id, requestVersion, useDummyData]);
+  }, [id, requestVersion]);
 
-  const dummyReport = useDummyData ? getDummyShopVisitReport(id) : null;
-
-  return useDummyData ? {
-    report: dummyReport,
-    isLoading: false,
-    error: dummyReport ? null : "Detail dummy SVR tidak ditemukan.",
-    retry: () => setRequestVersion(version => version + 1),
-  } : {
+  return {
     report,
     isLoading,
     error,

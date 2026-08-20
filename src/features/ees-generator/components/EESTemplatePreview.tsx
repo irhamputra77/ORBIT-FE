@@ -13,12 +13,6 @@ import {
 } from "@/features/service-bulletins";
 import { formatDateTime } from "@/lib/date-time";
 import { getGECategory, getGEImpact } from "@/lib/ees/ge-classification";
-import {
-  getSBData,
-  RELATIONSHIP_STATUS_LABEL,
-  TL_STATUS,
-  type SBRelationshipStatus,
-} from "../services/sb-timeline-service";
 import { CompactRadioOptions } from "./CompactRadioOptions";
 import { CitilinkEESTemplatePreview } from "./CitilinkEESTemplatePreview";
 import { AffectedEngineFieldEditor } from "./AffectedEngineFieldEditor";
@@ -105,34 +99,15 @@ export function EESTemplatePreview({
         dueAt: ees.dueAt ?? null,
         isApplicable: true,
       }];
-  const usesPresentationRelationships = Boolean(
-    ees.selectedSB?.isPresentationDummy,
-  );
   const relationshipQuery = useServiceBulletinRelations(
-    usesPresentationRelationships ? undefined : ees.selectedSB?.backendId,
+    ees.selectedSB?.backendId,
   );
-  const relationSourceId = usesPresentationRelationships
-    ? undefined
-    : ees.selectedSB?.backendId as string | undefined;
+  const relationSourceId = ees.selectedSB?.backendId as string | undefined;
   const backendRelationships: ServiceBulletinRelationship[] =
     relationshipQuery.data?.relationships ?? [];
   const unregisteredRelationshipCount = backendRelationships.filter(
     relation => relation.syncStatus === "UNREGISTERED",
   ).length;
-  const requestedRelationshipStatus = (
-    ["SUPERSEDED", "RECURRENT", "BOTH", "NONE"].includes(
-      ees.relationshipStatus,
-    )
-      ? ees.relationshipStatus
-      : undefined
-  ) as SBRelationshipStatus | undefined;
-  const presentationRelationshipData = usesPresentationRelationships
-    ? getSBData(
-        ees.bulletinNumber || "",
-        "",
-        requestedRelationshipStatus,
-      )
-    : null;
 
   async function handleCreateRelation() {
     if (!relationSourceId || isCreatingRelation) return;
@@ -595,20 +570,14 @@ export function EESTemplatePreview({
               className="rounded px-1.5 py-0.5 text-[9px] font-bold"
               style={{ background: "#0242DB12", color: "#0242DB" }}
             >
-              {usesPresentationRelationships
-                ? RELATIONSHIP_STATUS_LABEL[
-                    presentationRelationshipData?.relationshipStatus ?? "NONE"
-                  ]
-                : relationshipQuery.isLoading
+              {relationshipQuery.isLoading
                   ? "Loading"
                   : backendRelationships.length
                     ? `${backendRelationships.length} Direct${unregisteredRelationshipCount ? ` · ${unregisteredRelationshipCount} Unregistered` : ""}`
                     : "No Relationship"}
             </span>
             <span className="rounded bg-muted px-1.5 py-0.5 text-[8px] font-semibold text-muted-foreground">
-              {usesPresentationRelationships
-                ? "Document list: dummy"
-                : "Source: relations API"}
+              Source: relations API
             </span>
             {allowRelationEditing && relationSourceId && (
               <button
@@ -703,53 +672,7 @@ export function EESTemplatePreview({
             </div>
           )}
 
-          {usesPresentationRelationships ? (
-            presentationRelationshipData?.relatedSBs.length ? (
-              <div className="space-y-2">
-                {presentationRelationshipData.relatedSBs.map((relation, index) => {
-                  const presentation = TL_STATUS[
-                    relation.status === "Complied"
-                      ? "Completed"
-                      : relation.status === "Not Complied"
-                        ? "Blocked"
-                        : relation.status === "Partial"
-                          ? "Warning"
-                          : relation.status
-                  ] ?? TL_STATUS["No Data"];
-                  return (
-                    <div
-                      key={`${relation.sbNumber}-${index}`}
-                      className="flex flex-wrap items-center gap-3 rounded-lg px-3 py-2"
-                      style={{
-                        background: "var(--muted)",
-                        border: "1px solid var(--border)",
-                      }}
-                    >
-                      <span className="text-[11px] font-mono font-semibold text-foreground">
-                        {relation.sbNumber}
-                      </span>
-                      <span className="text-[10px] text-muted-foreground">
-                        {relation.relType}
-                      </span>
-                      <span
-                        className="rounded px-1.5 py-0.5 text-[10px] font-semibold"
-                        style={{
-                          background: presentation.bg,
-                          color: presentation.color,
-                        }}
-                      >
-                        {relation.status}
-                      </span>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : (
-              <p className="text-[11px] text-muted-foreground">
-                No prerequisite SB found from presentation data.
-              </p>
-            )
-          ) : relationshipQuery.isLoading ? (
+          {relationshipQuery.isLoading ? (
             <p className="text-[11px] text-muted-foreground">
               Loading direct SB relationships…
             </p>
@@ -832,7 +755,7 @@ export function EESTemplatePreview({
           <div className="grid grid-cols-2 gap-3">
             <div className="rounded-lg p-2.5" style={{ border: "1px solid rgba(2,66,219,0.2)", background: "rgba(2,66,219,0.04)" }}>
               <div className="text-[10px] text-muted-foreground mb-1">Prepared By</div>
-              <div className="text-xs font-semibold text-foreground">{ees.preparedBy || "Ahmad Fikri Ramadhan"}</div>
+              <div className="text-xs font-semibold text-foreground">{ees.preparedBy || "—"}</div>
               <div className="text-[10px] text-muted-foreground mt-0.5">{formatDateTime(ees.evaluationDate)}</div>
               <div className="text-[9px] mt-1" style={{ color: "#0242DB" }}>Digitally Signed</div>
             </div>

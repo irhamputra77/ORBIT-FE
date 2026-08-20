@@ -167,7 +167,6 @@ export function createValidatedEesPayload(
     ees.eesCategory,
     selectedSB.complianceCategory,
     citilinkField("compliance_category", "complianceCategory"),
-    selectedSB.isPresentationDummy ? selectedSB.sbCategory : undefined,
   );
   const references = stringList(
     ees.otherReferences

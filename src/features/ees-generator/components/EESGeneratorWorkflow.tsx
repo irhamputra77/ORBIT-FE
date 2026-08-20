@@ -48,9 +48,6 @@ import {
 } from "lucide-react";
 import { formatDateTime } from "@/lib/date-time";
 import {
-  submitPresentationApprovalScenario,
-} from "@/lib/presentation/ees-approval-scenario";
-import {
   getEesExcelUrl,
   getEesPdfUrl,
   getServiceBulletin,
@@ -120,26 +117,6 @@ import {
   parseListEntries,
   serializeListEntries,
 } from "../services/esn-fields";
-import {
-  createPresentationApplicability,
-  createPresentationApprovalStages,
-  createPresentationEesDocument,
-  getPresentationApprovalTarget,
-  getPresentationApprovers,
-  PRESENTATION_EES_REVIEW_HISTORY,
-  PRESENTATION_SERVICE_BULLETINS,
-  type EESPresentationServiceBulletin,
-} from "../data/presentation";
-import {
-  useApp,
-  type DataSourceMode,
-} from "@/app/(orbit)/context/AppContext";
-import {
-  getSBData,
-  RELATIONSHIP_STATUS_LABEL,
-  TL_STATUS,
-  type SBRelationshipStatus,
-} from "../services/sb-timeline-service";
 import { EESTemplatePreview } from "./EESTemplatePreview";
 import {
   CitilinkEESTemplatePreview,
@@ -168,8 +145,6 @@ type ManualUploadTemplate = "garuda" | "citilink";
 
 type DBServiceBulletin = {
   backendId?: string;
-  isPresentationDummy?: boolean;
-  relationshipStatus?: SBRelationshipStatus;
   id: string;
   title: string;
   engine: string;
@@ -213,6 +188,7 @@ type DBServiceBulletin = {
   source: string;
   lastSync: string;
   syncStatus: "Synced" | "Unsynced";
+  relationshipStatus?: string;
   tdrRef: string;
   warranty: "Y" | "N" | "";
   rep: string;
@@ -241,6 +217,17 @@ function normalizeApprovalOperator(...values: unknown[]): "GARUDA" | "CITILINK" 
     }
   }
   return null;
+}
+
+function getApprovalTarget(
+  operator: "GARUDA" | "CITILINK",
+  category: string,
+): "SECOND_ENGINEER" | "MANAGER" {
+  if (operator === "CITILINK") return "MANAGER";
+  const categoryNumber = Number(category.match(/\d+/)?.[0]);
+  return Number.isFinite(categoryNumber) && categoryNumber >= 4
+    ? "SECOND_ENGINEER"
+    : "MANAGER";
 }
 
 function updateEvaluationDraft(
@@ -386,11 +373,70 @@ function toWorkflowServiceBulletin(sb: ServiceBulletinViewModel): DBServiceBulle
 function getComplianceCategory(sb?: DBServiceBulletin | null) {
   if (!sb) return 0;
   if (typeof sb.complianceCategory === "number") return sb.complianceCategory;
-  return sb.isPresentationDummy ? sb.sbCategory ?? 0 : 0;
+  return sb.sbCategory ?? 0;
 }
 
 function isGeneratedServiceBulletin(sb: DBServiceBulletin) {
   return sb.draftStatus.toUpperCase() === "GENERATED" || Boolean(sb.generatedEesId);
+}
+
+function hasProcessedEes(sb: DBServiceBulletin) {
+  return isGeneratedServiceBulletin(sb)
+    || Boolean(sb.eesNumber?.trim())
+    || Boolean(sb.eesReviewStatus?.trim());
+}
+
+function Step1SelectionLoadingState() {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.22 }}
+      className="flex h-full flex-col overflow-hidden"
+      role="status"
+      aria-live="polite"
+      aria-label="Loading Service Bulletins"
+    >
+      <div className="shrink-0 space-y-2 border-b border-border px-3 py-2.5">
+        <div className="h-8 animate-pulse rounded-lg bg-muted" />
+        <div className="grid grid-cols-3 gap-1.5">
+          {[0, 1, 2].map(item => (
+            <div key={item} className="h-7 animate-pulse rounded-lg bg-muted" />
+          ))}
+        </div>
+      </div>
+      <div className="flex h-7 shrink-0 items-center gap-2 bg-blue-800 px-3">
+        <div className="h-2.5 w-2.5 animate-pulse rounded bg-white/35" />
+        <div className="h-2 w-36 animate-pulse rounded bg-white/35" />
+        <div className="ml-auto h-2 w-20 animate-pulse rounded bg-white/25" />
+      </div>
+      <div className="flex-1 overflow-hidden px-3">
+        {[0, 1, 2, 3, 4, 5].map(item => (
+          <div key={item} className="flex gap-2 border-b border-border py-3">
+            <div className="mt-0.5 h-3.5 w-3.5 shrink-0 animate-pulse rounded-full bg-muted" />
+            <div className="min-w-0 flex-1 space-y-2">
+              <div className="flex gap-2">
+                <div className="h-3 w-2/5 animate-pulse rounded bg-muted" />
+                <div className="h-3 w-14 animate-pulse rounded-full bg-muted" />
+              </div>
+              <div className="h-2.5 w-4/5 animate-pulse rounded bg-muted" />
+              <div className="h-2.5 w-3/5 animate-pulse rounded bg-muted" />
+            </div>
+          </div>
+        ))}
+      </div>
+      <WorkflowActionBar>
+        <div className="flex w-full items-center justify-between gap-3">
+          <div className="flex gap-2">
+            <div className="h-9 w-28 animate-pulse rounded-lg bg-muted" />
+            <div className="h-9 w-28 animate-pulse rounded-lg bg-muted" />
+          </div>
+          <div className="h-10 w-44 animate-pulse rounded-xl bg-muted" />
+        </div>
+      </WorkflowActionBar>
+      <span className="sr-only">Loading available Service Bulletins…</span>
+    </motion.div>
+  );
 }
 
 function getEvaluationApplicable(
@@ -482,145 +528,8 @@ function attachGeneratedEesDocument(
   };
 }
 
-// ─── SB Timeline & Related SB mock data ─────────────────────────────────────
+// ─── SB Timeline & Related SB data ──────────────────────────────────────────
 
-
-function RelatedSBSection({ sbId, lastSync }: { sbId: string; lastSync: string }) {
-  const { relatedSBs } = getSBData(sbId, lastSync);
-  const supersedingRows = relatedSBs.filter(r => r.relType === "Replaces Previous SB");
-  const relatedRows = relatedSBs.filter(r => r.relType === "Related SB");
-  const [activeTab, setActiveTab] = useState<"superseding" | "related">("superseding");
-
-  if (relatedSBs.length === 0) {
-    return (
-      <div className="rounded-xl p-4 mb-4" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
-        <div className="flex items-center gap-2 mb-1">
-          <GitBranch size={13} className="text-muted-foreground" />
-          <span className="text-xs font-semibold text-foreground">SB Relationship Information</span>
-          <span className="text-[9px] px-1.5 py-0.5 rounded font-medium ml-auto" style={{ background: "#0EA5E915", color: "#0EA5E9", border: "1px solid #0EA5E930" }}>Informational Only</span>
-        </div>
-        <p className="text-[11px] text-muted-foreground mt-2">No related or superseding SBs found in the main database.</p>
-      </div>
-    );
-  }
-
-  const tabCounts = { superseding: supersedingRows.length, related: relatedRows.length };
-  const activeRows = activeTab === "superseding" ? supersedingRows : relatedRows;
-
-  return (
-    <div className="mb-4">
-      <div className="flex items-center gap-2 mb-2">
-        <GitBranch size={13} style={{ color: "#0242DB" }} />
-        <span className="text-xs font-semibold text-foreground">SB Relationship Information</span>
-        <span className="text-[9px] px-1.5 py-0.5 rounded font-medium" style={{ background: "#0EA5E915", color: "#0EA5E9", border: "1px solid #0EA5E930" }}>Informational Only</span>
-        <span className="text-[9px] text-muted-foreground ml-auto">{relatedSBs.length} relationship{relatedSBs.length !== 1 ? "s" : ""} · Source: Main Database</span>
-      </div>
-
-      {/* Info notice */}
-      <div className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl mb-3" style={{ background: "#0EA5E908", border: "1px solid #0EA5E925" }}>
-        <Info size={13} style={{ color: "#0EA5E9" }} className="shrink-0 mt-0.5" />
-        <p className="text-[11px] leading-relaxed" style={{ color: "#0EA5E9" }}>
-          SB relationship information is shown for traceability only and does not block this review. Review can continue at any time.
-        </p>
-      </div>
-
-      {/* Tabs */}
-      <div className="flex gap-1 mb-3">
-        {(["superseding", "related"] as const).map(tab => (
-          <button key={tab} onClick={() => setActiveTab(tab)}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all"
-            style={activeTab === tab
-              ? { background: "linear-gradient(135deg, #0E1B93, #0242DB)", color: "white" }
-              : { background: "var(--muted)", color: "var(--muted-foreground)", border: "1px solid var(--border)" }}>
-            {tab === "superseding" ? "Superseding / Replacement" : "Related SB"}
-            {tabCounts[tab] > 0 && (
-              <span className="text-[9px] px-1 rounded-full font-bold"
-                style={activeTab === tab ? { background: "rgba(255,255,255,0.2)" } : { background: "var(--border)" }}>
-                {tabCounts[tab]}
-              </span>
-            )}
-          </button>
-        ))}
-      </div>
-
-      {activeRows.length === 0 ? (
-        <div className="rounded-xl px-4 py-3 text-[11px] text-muted-foreground" style={{ background: "var(--muted)", border: "1px solid var(--border)" }}>
-          No {activeTab === "superseding" ? "superseding/replacement" : "related"} SBs found for this bulletin.
-        </div>
-      ) : (
-        <div className="rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
-              <thead>
-                <tr style={{ background: "var(--muted)", borderBottom: "1px solid var(--border)" }}>
-                  {["SB Number", "Relationship Type", "Affected Engine(s)", "Status", "Traceability Note", "Last Updated"].map(h => (
-                    <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {activeRows.map((r, i) => {
-                  const st = TL_STATUS[r.status] || TL_STATUS["No Data"];
-                  const note = r.relType === "Replaces Previous SB"
-                    ? "Previous SB shown for version traceability. Review can continue."
-                    : "Related SB shown for engineering context only. Review can continue.";
-                  return (
-                    <tr key={i} style={{ borderBottom: "1px solid var(--border)", background: i % 2 === 0 ? "var(--card)" : "var(--muted)" }}>
-                      <td className="px-3 py-2.5 font-mono font-semibold text-foreground text-[11px]">{r.sbNumber}</td>
-                      <td className="px-3 py-2.5">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-semibold" style={{ background: "rgba(2,66,219,0.08)", color: "#0242DB" }}>{r.relType}</span>
-                      </td>
-                      <td className="px-3 py-2.5 text-muted-foreground text-[11px]">{r.affectedEngines}</td>
-                      <td className="px-3 py-2.5">
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold whitespace-nowrap" style={{ background: st.bg, color: st.color }}>{r.status}</span>
-                      </td>
-                      <td className="px-3 py-2.5 text-[10px] text-muted-foreground max-w-[200px]">{note}</td>
-                      <td className="px-3 py-2.5 text-muted-foreground whitespace-nowrap text-[10px]">{r.lastUpdated}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {/* Engine-level detail if available */}
-      {activeRows.some(r => r.engines) && (
-        <div className="mt-2 rounded-xl overflow-hidden" style={{ border: "1px solid var(--border)" }}>
-          <div className="px-4 py-2 flex items-center gap-2" style={{ background: "rgba(14,165,233,0.06)", borderBottom: "1px solid rgba(14,165,233,0.15)" }}>
-            <Info size={11} style={{ color: "#0EA5E9" }} />
-            <span className="text-[11px] font-semibold" style={{ color: "#0EA5E9" }}>Engine-Level Traceability</span>
-            <span className="text-[10px] text-muted-foreground ml-2">· Informational only — all engines remain eligible for EES review</span>
-          </div>
-          <table className="w-full text-xs">
-            <thead>
-              <tr style={{ background: "var(--muted)", borderBottom: "1px solid var(--border)" }}>
-                {["ESN", "Previous SB Status", "EES Review Eligibility", "Source", "Last Updated"].map(h => (
-                  <th key={h} className="px-3 py-2 text-left text-[10px] font-semibold text-muted-foreground uppercase tracking-wider whitespace-nowrap">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {activeRows.flatMap(r => r.engines || []).map((e, i) => {
-                const relSt = TL_STATUS[e.relStatus] || TL_STATUS["No Data"];
-                return (
-                  <tr key={i} style={{ borderBottom: "1px solid var(--border)", background: i % 2 === 0 ? "var(--card)" : "var(--muted)" }}>
-                    <td className="px-3 py-2 font-mono font-semibold text-foreground">{e.esn}</td>
-                    <td className="px-3 py-2"><span className="px-2 py-0.5 rounded-full text-[10px] font-semibold" style={{ background: relSt.bg, color: relSt.color }}>{e.relStatus}</span></td>
-                    <td className="px-3 py-2"><span className="px-2 py-0.5 rounded-full text-[10px] font-semibold" style={{ background: TL_STATUS["Completed"].bg, color: TL_STATUS["Completed"].color }}>Eligible</span></td>
-                    <td className="px-3 py-2 text-muted-foreground">Main Database</td>
-                    <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">{formatDateTime("2026-07-07T22:00:00+07:00")}</td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ─── SB Process Timeline ─────────────────────────────────────────────────────
 
@@ -631,7 +540,7 @@ function SBTimeline({
 }: {
   lastSync: string;
   status: string;
-  relationshipStatus?: SBRelationshipStatus;
+  relationshipStatus?: string;
 }) {
   const relationship = relationshipStatus ?? "NONE";
 
@@ -648,7 +557,7 @@ function SBTimeline({
       <div className="flex flex-wrap gap-2">
         {[
           { label: "SB Status", value: status || "—" },
-          { label: "Relationship", value: RELATIONSHIP_STATUS_LABEL[relationship] },
+          { label: "Relationship", value: relationship.replaceAll("_", " ") },
           { label: "EES Review", value: "Available" },
         ].map(({ label, value }) => (
           <div key={label} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg" style={{ background: "var(--muted)", border: "1px solid var(--border)" }}>
@@ -661,31 +570,6 @@ function SBTimeline({
   );
 }
 
-const FLEET_PERSONNEL: Record<string, string[]> = {
-  "B737 NG": [
-    "Marcellino V. Y. Pangaribuan",
-    "Victo Alfritzy Aden",
-    "Ahmad Fikri Ramadhan",
-  ],
-  "B737 MAX": [
-    "Marcellino V. Y. Pangaribuan",
-    "Victo Alfritzy Aden",
-  ],
-  A320: [
-    "Muhammad Fauzan",
-    "Dewa Gede Surya Eka Natha",
-    "M. Badruz Zaman",
-  ],
-  A320neo: ["Muhammad Fauzan", "Dewa Gede Surya Eka Natha"],
-  A330: ["Rahmat Wintoloaji", "Nathanael", "Ryann Argadiraksa"],
-  A330neo: ["Rahmat Wintoloaji", "Nathanael"],
-  B777: [
-    "Muhammad Umar Abdul Aziz",
-    "Khodijah Nurhalimah",
-    "Abdunnafi Naufal Mumtazi",
-  ],
-  ATR72: ["Rahmat Wintoloaji", "M. Badruz Zaman"],
-};
 const getAirline = (fleet: string) => {
   const normalized = fleet.toLowerCase();
   return normalized.includes("a320") || normalized.includes("atr")
@@ -696,36 +580,15 @@ const getAirline = (fleet: string) => {
 
 // ─── SB Document Viewer ──────────────────────────────────────────────────────
 
-const SB_SECTIONS = [
-  { id: "planning", label: "Planning Information", page: 1 },
-  { id: "effectivity", label: "Effectivity", page: 2 },
-  { id: "compliance", label: "Compliance", page: 3 },
-  { id: "accomplishment", label: "Accomplishment Instructions", page: 4 },
-  { id: "material", label: "Material Information", page: 7 },
-  { id: "appendix", label: "Appendix", page: 10 },
-];
-
 type SBDocViewerProps = {
-  sb: { backendId?: string; id: string; fleet: string; engineType: string; revision?: string; source?: string; syncStatus?: string } | null;
+  sb: { backendId?: string; id: string } | null;
   targetPage?: number;
 };
 
-function SBDocumentViewer({ sb, targetPage }: SBDocViewerProps) {
-  const [page, setPage] = useState(1);
-  const [activeSection, setActiveSection] = useState("planning");
+function SBDocumentViewer({ sb }: SBDocViewerProps) {
   const [pdfStatus, setPdfStatus] = useState<
     "idle" | "loading" | "available" | "unavailable"
   >("idle");
-  const totalPages = 12;
-
-  useEffect(() => {
-    if (targetPage) {
-      setPage((currentPage) => currentPage === targetPage ? currentPage : targetPage);
-      const sec = SB_SECTIONS.find(s => s.page === targetPage);
-      if (sec) setActiveSection(sec.id);
-    }
-  }, [targetPage]);
-
   const backendPdfUrl = sb?.backendId
     ? getServiceBulletinPdfUrl(sb.backendId, "view")
     : null;
@@ -753,12 +616,7 @@ function SBDocumentViewer({ sb, targetPage }: SBDocViewerProps) {
 
         await response.body?.cancel().catch(() => undefined);
         if (controller.signal.aborted) return;
-        if (!response.ok || !isPdfResponse) {
-          setPdfStatus("unavailable");
-          return;
-        }
-
-        setPdfStatus("available");
+        setPdfStatus(response.ok && isPdfResponse ? "available" : "unavailable");
       } catch (error) {
         if (!(error instanceof DOMException && error.name === "AbortError")) {
           setPdfStatus("unavailable");
@@ -770,205 +628,47 @@ function SBDocumentViewer({ sb, targetPage }: SBDocViewerProps) {
     return () => controller.abort();
   }, [backendPdfUrl]);
 
-  const jumpToSection = (sec: typeof SB_SECTIONS[number]) => {
-    setActiveSection(sec.id);
-    setPage(sec.page);
-  };
+  if (!sb) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center text-muted-foreground">
+        <FileText size={40} className="mb-3 opacity-20" />
+        <div className="text-sm font-medium">No SB selected</div>
+      </div>
+    );
+  }
 
-  const pageContent: Record<number, ReactNode> = {
-    1: (
-      <div>
-        <div className="text-center mb-6">
-          <div className="text-[11px] text-muted-foreground uppercase tracking-widest mb-1">Garuda Indonesia / Citilink</div>
-          <div className="text-[17px] font-bold text-foreground mb-1">{sb?.engineType || "CFM56-7B"} ENGINE</div>
-          <div className="text-[13px] font-semibold text-foreground mb-2">SERVICE BULLETIN</div>
-          <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg mb-3" style={{ background: "rgba(2,66,219,0.06)", border: "1px solid rgba(2,66,219,0.2)" }}>
-            <span className="font-mono font-bold text-sm" style={{ color: "#0242DB" }}>{sb?.id || "—"}</span>
-            <span className="text-[10px] text-muted-foreground">Rev {sb?.revision || "R01"}</span>
-          </div>
-          <div className="text-[11px] text-muted-foreground">Issue Date: {formatDateTime("2026-07-08T00:00:00+07:00")}</div>
+  if (!backendPdfUrl || pdfStatus === "unavailable") {
+    return (
+      <div className="flex h-full min-h-[480px] flex-col items-center justify-center px-6 text-center text-muted-foreground">
+        <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full border border-amber-200 bg-amber-50 text-amber-600">
+          <AlertCircle size={24} />
         </div>
-        <div className="rounded-xl p-4 mb-4" style={{ background: "rgba(2,66,219,0.04)", border: "1px solid rgba(2,66,219,0.15)" }}>
-          <div className="text-[11px] font-bold text-foreground mb-2 uppercase tracking-wider">Subject</div>
-          <p className="text-[12px] text-foreground leading-relaxed font-medium">
-            {sb?.fleet?.includes("737") ? "CFM56-7B — Fan Module Inspection and Replacement Procedure for High-Cycle Fatigue Risk Mitigation"
-            : sb?.fleet?.includes("MAX") ? "LEAP-1B — Engine Core Vibration Monitoring Sensor Calibration Update"
-            : sb?.fleet?.includes("320") ? "CFM56-5B / IAE V2500 — Low-Pressure Compressor Stage 1 Blade Replacement"
-            : "Engine Maintenance — Periodic Inspection and Component Replacement Procedure"}
-          </p>
-        </div>
-        <div className="space-y-2 text-[11px]">
-          {[
-            ["Reason", "To provide instructions for inspection and replacement of the fan module assembly following detection of high-cycle fatigue indicators in fleet-wide monitoring data."],
-            ["Description", "This Service Bulletin provides effectivity, compliance, and accomplishment instructions for performing the required fan module inspection and, where applicable, replacement."],
-            ["Manpower", "2 technicians × 4 hours per engine"],
-            ["Tooling", "Refer to AMM 72-00-00 Tool List, CFMI Special Tool ST-7234"],
-            ["Parts", "See Material Information — Part No. 335-001-403-0"],
-          ].map(([k, v]) => (
-            <div key={k} className="flex gap-3">
-              <span className="font-semibold text-foreground w-28 shrink-0">{k}:</span>
-              <span className="text-muted-foreground">{v}</span>
-            </div>
-          ))}
+        <div className="text-sm font-semibold text-foreground">PDF tidak tersedia</div>
+        <div className="mt-1 max-w-sm text-xs leading-relaxed">
+          File PDF Service Bulletin tidak ditemukan atau tidak dapat dimuat dari backend.
         </div>
       </div>
-    ),
-    2: (
-      <div>
-        <div className="text-[13px] font-bold text-foreground mb-4 pb-2" style={{ borderBottom: "2px solid var(--border)" }}>
-          2. EFFECTIVITY AND APPLICABILITY
-        </div>
-        <div className="rounded-xl p-3 mb-4" style={{ background: "var(--muted)", border: "1px solid var(--border)" }}>
-          <div className="text-[11px] font-bold text-foreground mb-2">2.1 Effectivity</div>
-          <p className="text-[11px] text-foreground leading-relaxed">
-            All {sb?.engineType || "CFM56-7B"} engines installed on {sb?.fleet || "B737 NG"} aircraft operated by Garuda Indonesia and Citilink with serial numbers listed in Appendix A and having accumulated more than 8,000 Flight Cycles since new or since last fan blade replacement.
-          </p>
-          <div className="mt-2 text-[10px] text-muted-foreground flex items-center gap-1.5">
-            <BookOpen size={9} />See Appendix A for complete Engine Serial Number listing.
-          </div>
-        </div>
-        <div className="rounded-xl p-3 mb-4" style={{ background: "var(--muted)", border: "1px solid var(--border)" }}>
-          <div className="text-[11px] font-bold text-foreground mb-2">2.2 Applicability</div>
-          <p className="text-[11px] text-foreground leading-relaxed">
-            This bulletin applies to {sb?.fleet || "B737 NG"} fleet aircraft. Aircraft not listed in Appendix A are not affected. Operators should cross-reference with AMM Chapter 72 and current Airworthiness Directive status.
-          </p>
-        </div>
-        <div className="rounded-xl p-3 mb-4" style={{ background: "var(--muted)", border: "1px solid var(--border)" }}>
-          <div className="text-[11px] font-bold text-foreground mb-2">2.3 Affected Engine Serial Numbers</div>
-          <div className="grid grid-cols-3 gap-1 text-[10px] font-mono text-foreground">
-            {["ESN 960367", "ESN 892138", "ESN 854437", "ESN 805291", "ESN 773920", "ESN 741085"].map(e => (
-              <div key={e} className="px-2 py-1 rounded" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>{e}</div>
-            ))}
-          </div>
-        </div>
-      </div>
-    ),
-    3: (
-      <div>
-        <div className="text-[13px] font-bold text-foreground mb-4 pb-2" style={{ borderBottom: "2px solid var(--border)" }}>
-          3. COMPLIANCE
-        </div>
-        <div className="rounded-xl p-3 mb-4" style={{ background: "var(--muted)", border: "1px solid var(--border)" }}>
-          <div className="text-[11px] font-bold text-foreground mb-2">3.1 Compliance Category</div>
-          <div className="flex items-center gap-2 mb-2">
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold" style={{ background: "#10B98115", color: "#10B981" }}>MANDATORY</span>
-            <span className="text-[10px] text-muted-foreground">as per Airworthiness Directive AD-2026-0044</span>
-          </div>
-          <div className="text-[11px] font-bold text-foreground mb-1 mt-3">3.2 Compliance Interval</div>
-          <p className="text-[11px] text-foreground leading-relaxed">
-            <strong>Initial compliance:</strong> Within 12 months or 3,000 Flight Cycles (FC) after the effective date of this bulletin, whichever occurs first.
-            <br /><br />
-            <strong>Repetitive interval:</strong> Every 24 months or 6,500 FC thereafter.
-          </p>
-        </div>
-        <div className="text-[11px] font-bold text-foreground mb-2">3.3 Concession / Extension</div>
-        <p className="text-[11px] text-muted-foreground leading-relaxed">
-          Requests for compliance extension must be submitted to TEA-2 Engineering for evaluation and forwarded to the Authority for approval. No self-extension is permitted without written Authority approval.
-        </p>
-      </div>
-    ),
-    4: (
-      <div>
-        <div className="text-[13px] font-bold text-foreground mb-4 pb-2" style={{ borderBottom: "2px solid var(--border)" }}>
-          4. ACCOMPLISHMENT INSTRUCTIONS
-        </div>
-        <p className="text-[11px] text-muted-foreground mb-4 leading-relaxed">
-          Perform this work in accordance with the CFM International Maintenance Manual (CMM) 72-00-00 and AMM Chapter 72. All work must be performed by licensed aircraft maintenance engineers (LAMEs) approved for the relevant engine type.
-        </p>
-        {[
-          { step: "4.1", title: "Preparation", desc: "Remove engine from wing per AMM 71-00-00. Install engine on test stand. Ensure all safety precautions per CMM 72-00-00 are observed." },
-          { step: "4.2", title: "Access", desc: "Remove fan cowl doors (L/H and R/H). Disconnect fan reverser actuating system. Record fan blade leading edge erosion values prior to removal." },
-          { step: "4.3", title: "Inspection", desc: "Inspect fan blades for cracks using fluorescent penetrant inspection (FPI) per NDT Manual NTM-72-00-01. Inspect all 24 fan blades. Record findings on Technical Work Order (TWO)." },
-          { step: "4.4", title: "Replacement", desc: "If any blade fails inspection criteria per CMM 72-21-00 Table 601, replace with serviceable fan blade P/N 335-001-403-0. Ensure proper torque per AMM Table 201." },
-          { step: "4.5", title: "Reassembly & Test", desc: "Reassemble fan module. Perform fan track clearance check. Conduct engine test run per EO 10000127027. Record post-test data." },
-        ].map(({ step, title, desc }) => (
-          <div key={step} className="mb-3 rounded-xl p-3" style={{ background: "var(--muted)", border: "1px solid var(--border)" }}>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-[10px] font-bold" style={{ color: "#0242DB" }}>{step}</span>
-              <span className="text-[11px] font-semibold text-foreground">{title}</span>
-            </div>
-            <p className="text-[11px] text-muted-foreground leading-relaxed">{desc}</p>
-          </div>
-        ))}
-      </div>
-    ),
-  };
+    );
+  }
 
-  const content = pageContent[page] ?? (
-    <div className="flex flex-col items-center justify-center h-48 text-muted-foreground">
-      <FileText size={32} className="mb-3 opacity-30" />
-      <div className="text-sm font-medium">Page {page} of {totalPages}</div>
-      <div className="text-xs mt-1 opacity-60">Content available in full document</div>
-    </div>
-  );
+  if (pdfStatus === "loading" || pdfStatus === "idle") {
+    return (
+      <div className="flex h-full min-h-[480px] flex-col items-center justify-center text-muted-foreground">
+        <Loader2 size={28} className="mb-3 animate-spin text-blue-600" />
+        <div className="text-sm font-medium">Memuat PDF Service Bulletin...</div>
+      </div>
+    );
+  }
 
   return (
-    <div className="flex flex-col h-full" style={{ background: "var(--card)" }}>
-      {/* Section shortcut chips */}
-      {!backendPdfUrl && <div className="shrink-0 px-3 py-1.5 flex items-center gap-1.5 overflow-x-auto" style={{ borderBottom: "1px solid var(--border)" }}>
-        {SB_SECTIONS.map(sec => (
-          <button key={sec.id} onClick={() => jumpToSection(sec)}
-            className="shrink-0 px-2.5 py-1 rounded-full text-[10px] font-medium whitespace-nowrap transition-all"
-            style={activeSection === sec.id
-              ? { background: "linear-gradient(135deg, #0E1B93, #0242DB)", color: "white" }
-              : { background: "var(--muted)", color: "var(--muted-foreground)", border: "1px solid var(--border)" }}>
-            {sec.label}
-          </button>
-        ))}
-      </div>}
-
-      {/* Document area */}
-      <div className={`flex-1 overflow-y-auto ${backendPdfUrl ? "p-0" : "p-4"}`} style={{ background: "#F0F2F5" }}>
-        {!sb ? (
-          <div className="h-full flex flex-col items-center justify-center text-muted-foreground">
-            <FileText size={40} className="mb-3 opacity-20" />
-            <div className="text-sm font-medium">No SB selected</div>
-            <div className="text-xs mt-1 opacity-60">Select a Service Bulletin from the list to view its document</div>
-          </div>
-        ) : backendPdfUrl && pdfStatus === "loading" ? (
-          <div className="flex h-full min-h-[480px] flex-col items-center justify-center text-muted-foreground">
-            <Loader2 size={28} className="mb-3 animate-spin text-blue-600" />
-            <div className="text-sm font-medium">Memuat PDF Service Bulletin...</div>
-          </div>
-        ) : backendPdfUrl && pdfStatus === "unavailable" ? (
-          <div className="flex h-full min-h-[480px] flex-col items-center justify-center px-6 text-center text-muted-foreground">
-            <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full border border-amber-200 bg-amber-50 text-amber-600">
-              <AlertCircle size={24} />
-            </div>
-            <div className="text-sm font-semibold text-foreground">PDF tidak tersedia</div>
-            <div className="mt-1 max-w-sm text-xs leading-relaxed">
-              File PDF Service Bulletin tidak ditemukan atau tidak dapat dimuat.
-            </div>
-          </div>
-        ) : backendPdfUrl && pdfStatus === "available" ? (
-          <iframe
-            src={backendPdfUrl}
-            title={`Service Bulletin ${sb.id}`}
-            className="h-full min-h-[480px] w-full border-0 bg-white"
-            onError={() => setPdfStatus("unavailable")}
-          />
-        ) : (
-          <div className="mx-auto bg-white rounded-xl shadow-sm p-6 text-foreground"
-            style={{ width: "100%", maxWidth: "100%", minWidth: "280px", border: "1px solid rgba(0,0,0,0.08)", transform: "translateZ(0)" }}>
-            {/* Document header */}
-            <div className="flex items-start justify-between mb-5 pb-4" style={{ borderBottom: "2px solid #0242DB" }}>
-              <div>
-                <div className="text-[9px] font-bold tracking-widest text-muted-foreground uppercase mb-1">CFMI / Garuda Indonesia · TEA-2 Engineering</div>
-                <div className="text-[10px] font-mono text-muted-foreground">Doc Ref: {sb.id} · Rev {sb.revision || "R01"} · Page {page} of {totalPages}</div>
-              </div>
-              <div className="text-right">
-                <div className="text-[9px] text-muted-foreground">Classification</div>
-                <div className="text-[10px] font-bold" style={{ color: "#0242DB" }}>CONTROLLED DOCUMENT</div>
-              </div>
-            </div>
-            {content}
-          </div>
-        )}
-      </div>
-    </div>
+    <iframe
+      src={backendPdfUrl}
+      title={`Service Bulletin ${sb.id}`}
+      className="h-full min-h-[480px] w-full border-0 bg-white"
+      onError={() => setPdfStatus("unavailable")}
+    />
   );
 }
-
 // ─── SB Context Panel (persistent left panel) ────────────────────────────────
 
 type SBContextPanelProps = {
@@ -983,25 +683,14 @@ type SBContextPanelProps = {
 function SBContextPanel({ sb, category, collapsed, onToggle, docViewerOpen, onToggleDoc }: SBContextPanelProps) {
   const isUnsynced = sb?.syncStatus === "Unsynced";
   const relationshipQuery = useServiceBulletinRelations(
-    sb && !sb.isPresentationDummy ? sb.backendId : undefined,
+    sb?.backendId,
   );
-  const presentationRelationships = sb?.isPresentationDummy
-    ? getSBData(
-        sb.id,
-        sb.lastSync,
-        (sb.relationshipStatus ?? "NONE") as SBRelationshipStatus,
-      ).relatedSBs
-    : [];
   const backendRelationships: ServiceBulletinRelationship[] =
     relationshipQuery.data?.relationships ?? [];
   const unregisteredRelationshipCount = backendRelationships.filter(
     relationship => relationship.syncStatus === "UNREGISTERED",
   ).length;
-  const relationshipBadge = sb?.isPresentationDummy
-    ? RELATIONSHIP_STATUS_LABEL[
-        (sb.relationshipStatus ?? "NONE") as SBRelationshipStatus
-      ]
-    : relationshipQuery.isLoading
+  const relationshipBadge = relationshipQuery.isLoading
       ? "Loading"
       : backendRelationships.length
         ? `${backendRelationships.length} Direct${unregisteredRelationshipCount ? ` · ${unregisteredRelationshipCount} Unregistered` : ""}`
@@ -1101,33 +790,12 @@ function SBContextPanel({ sb, category, collapsed, onToggle, docViewerOpen, onTo
                   </span>
                   <span className="ml-auto text-[8px] px-1.5 py-0.5 rounded font-bold" style={{ background: "#0EA5E915", color: "#0EA5E9" }}>Info Only</span>
                 </div>
-                {sb.isPresentationDummy && presentationRelationships.length > 0 ? (
-                  <div className="space-y-1.5">
-                    {presentationRelationships.map(relationship => (
-                      <div
-                        key={`${relationship.relType}-${relationship.sbNumber}`}
-                        className="rounded-lg border border-border bg-card px-2.5 py-2"
-                      >
-                        <div className="flex items-center gap-2">
-                          <span className="min-w-0 flex-1 truncate font-mono text-[9px] font-bold text-foreground">
-                            {relationship.sbNumber}
-                          </span>
-                          <span className="rounded-full bg-blue-500/10 px-1.5 py-0.5 text-[8px] font-semibold text-blue-600">
-                            {relationship.status}
-                          </span>
-                        </div>
-                        <div className="mt-1 text-[8px] text-muted-foreground">
-                          {relationship.relType} · {relationship.affectedEngines}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : !sb.isPresentationDummy && relationshipQuery.isLoading ? (
+                {relationshipQuery.isLoading ? (
                   <div className="flex items-center justify-center gap-2 py-4 text-[10px] text-muted-foreground">
                     <Loader2 size={11} className="animate-spin" />
                     Loading direct relationships…
                   </div>
-                ) : !sb.isPresentationDummy && relationshipQuery.error ? (
+                ) : relationshipQuery.error ? (
                   <div className="py-3 text-center">
                     <p className="text-[10px] text-red-600">
                       {relationshipQuery.error}
@@ -1140,7 +808,7 @@ function SBContextPanel({ sb, category, collapsed, onToggle, docViewerOpen, onTo
                       Try again
                     </button>
                   </div>
-                ) : !sb.isPresentationDummy && backendRelationships.length > 0 ? (
+                ) : backendRelationships.length > 0 ? (
                   <div className="space-y-1.5">
                     {backendRelationships.map((relationship, index) => (
                       <div
@@ -1188,9 +856,7 @@ function SBContextPanel({ sb, category, collapsed, onToggle, docViewerOpen, onTo
                 <div className="mt-3 pt-2.5 flex items-start gap-1.5" style={{ borderTop: "1px solid var(--border)" }}>
                   <Info size={9} style={{ color: "#0EA5E9" }} className="shrink-0 mt-0.5" />
                   <p className="text-[9px] leading-relaxed" style={{ color: "var(--muted-foreground)" }}>
-                    {sb.isPresentationDummy
-                      ? "Relationship documents are presentation data and do not block this review."
-                      : "Direct outgoing and incoming relationships come from the Service Bulletin relations API."}
+                    Direct outgoing and incoming relationships come from the Service Bulletin relations API.
                   </p>
                 </div>
               </div>
@@ -1209,12 +875,10 @@ function Step1SelectSB({
   saved,
   onNext,
   onSave,
-  useDummyData,
 }: {
   saved: any;
   onNext: (d: any) => void;
   onSave: (d: any) => void;
-  useDummyData: boolean;
 }) {
   const serviceBulletinQuery = useServiceBulletins(
     {
@@ -1223,7 +887,7 @@ function Step1SelectSB({
       sortBy: "receivedAt",
       sortOrder: "desc",
     },
-    { fetchAll: true, enabled: !useDummyData, pendingOnly: true },
+    { fetchAll: true, enabled: true, pendingOnly: true },
   );
   const uploadServiceBulletin = useUploadServiceBulletin();
   const [searchQuery, setSearchQuery] = useState("");
@@ -1243,17 +907,11 @@ function Step1SelectSB({
   const [uploadDragging, setUploadDragging] = useState(false);
   const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
   const [preparingEes, setPreparingEes] = useState(false);
-  const [presentationSBs, setPresentationSBs] = useState<DBServiceBulletin[]>(
-    PRESENTATION_SERVICE_BULLETINS,
-  );
   const detailRequestVersion = useRef(0);
-  const aircraftTypesQuery = useAircraftTypes(showManualModal && !useDummyData);
-  const presentationAircraftTypes = [...new Set(PRESENTATION_SERVICE_BULLETINS.map(sb => sb.fleet))];
-  const aircraftTypes = useDummyData
-    ? presentationAircraftTypes
-    : aircraftTypesQuery.aircraftTypes;
-  const aircraftTypesLoading = !useDummyData && aircraftTypesQuery.isLoading;
-  const aircraftTypesError = useDummyData ? null : aircraftTypesQuery.error;
+  const aircraftTypesQuery = useAircraftTypes(showManualModal);
+  const aircraftTypes = aircraftTypesQuery.aircraftTypes;
+  const aircraftTypesLoading = aircraftTypesQuery.isLoading;
+  const aircraftTypesError = aircraftTypesQuery.error;
 
   useEffect(() => {
     if (!uploadServiceBulletin.isBusy) {
@@ -1276,9 +934,13 @@ function Step1SelectSB({
     () => serviceBulletinQuery.items.map(toWorkflowServiceBulletin),
     [serviceBulletinQuery.items],
   );
-  const allSBs = useDummyData
-    ? presentationSBs
-    : backendServiceBulletins;
+  const availableBackendServiceBulletins = useMemo(
+    () => backendServiceBulletins.filter(sb => !hasProcessedEes(sb)),
+    [backendServiceBulletins],
+  );
+  const hiddenProcessedEesCount = backendServiceBulletins.length
+    - availableBackendServiceBulletins.length;
+  const allSBs = availableBackendServiceBulletins;
   const uniqueFleets = [...new Set(allSBs.map((sb) => sb.fleet))];
   const uniqueEngines = [...new Set(allSBs.map((sb) => sb.engineType))];
   const visibleSBs = allSBs.filter((sb) => {
@@ -1417,44 +1079,6 @@ function Step1SelectSB({
   const handleUploadSB = async () => {
     if (!uploadFile || !uploadFleetType) return;
 
-    if (useDummyData) {
-      const baseSB = PRESENTATION_SERVICE_BULLETINS.at(-1)!;
-      const fileLabel = uploadFile.name.replace(/\.pdf$/i, "").replace(/[_-]+/g, " ").trim();
-      const engineType = engMap[uploadFleetType] || baseSB.engineType;
-      const uploadedSB: DBServiceBulletin = {
-        ...baseSB,
-        id: `DEMO-${uploadFile.name.replace(/\.pdf$/i, "").toUpperCase()}`,
-        title: fileLabel || "Uploaded Presentation Service Bulletin",
-        fleet: uploadFleetType,
-        operator: "Unassigned",
-        eesTemplate: undefined,
-        engine: engineType,
-        engineType,
-        affectedESNs: ["DEMO-ESN-001", "DEMO-ESN-002"],
-        affectedEngine: "DEMO-ESN-001, DEMO-ESN-002",
-        affectedPartNumbers: ["DEMO-PN-1001"],
-        createdBy: "Ahmad Fikri Ramadhan",
-        issuedDate: new Date().toISOString().slice(0, 10),
-        lastSync: new Date().toISOString(),
-        status: "PENDING_AI",
-        syncStatus: "Unsynced",
-        tdr: "",
-        tdrRef: "",
-        source: "Presentation Demo Upload",
-        eesReviewStatus: "PENDING",
-      };
-
-      setPresentationSBs(current => [uploadedSB, ...current]);
-      setSelectedSB(uploadedSB);
-      setSummarized(true);
-      onSave({ selectedSB: uploadedSB, summarized: true, isUnsyncedSB: true });
-      setUploadFleetType("");
-      setUploadFile(null);
-      setShowManualModal(false);
-      toast.success("Presentation SB uploaded and AI extraction simulated.");
-      return;
-    }
-
     const result = await uploadServiceBulletin.upload(
       uploadFile,
       uploadFleetType,
@@ -1578,6 +1202,13 @@ function Step1SelectSB({
     void prepareEesAndContinue(selectedSB);
   };
 
+  const showInitialLoading = serviceBulletinQuery.isLoading
+    && serviceBulletinQuery.items.length === 0;
+
+  if (showInitialLoading) {
+    return <Step1SelectionLoadingState />;
+  }
+
   return (
     <div className="flex flex-col h-full overflow-hidden">
       {/* Unsynced SB — Continue Warning Modal */}
@@ -1647,9 +1278,7 @@ function Step1SelectSB({
               <div className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl" style={{ background: "#0EA5E90A", border: "1px solid #0EA5E935" }}>
                 <Info size={14} style={{ color: "#0EA5E9" }} className="shrink-0 mt-0.5" />
                 <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  {useDummyData
-                    ? "Presentation mode simulates PDF validation and AI metadata extraction locally. The uploaded SB will appear as an unsynced draft with an empty TDR."
-                    : "Upload the original SB PDF. The backend will validate the document and extract its metadata without requiring an EES template during upload."}
+                  Upload the original SB PDF. The backend will validate the document and extract its metadata without requiring an EES template during upload.
                 </p>
               </div>
               <div>
@@ -1685,9 +1314,7 @@ function Step1SelectSB({
                   </div>
                 ) : (
                   <p className="mt-1.5 text-[10px] leading-relaxed text-muted-foreground">
-                    {useDummyData
-                      ? "The fleet is stored independently and no EES template is required during upload."
-                      : "The selected value is sent to the backend as X-Aircraft-Type."}
+                    The selected value is sent to the backend as X-Aircraft-Type.
                   </p>
                 )}
               </div>
@@ -1843,8 +1470,13 @@ function Step1SelectSB({
 
       {/* ── SB List (right panel content for step 1) ─────────────── */}
       <div className="flex flex-col h-full overflow-hidden">
-        {/* User-controlled filters; all backend records remain in allSBs. */}
-        <div className="shrink-0 space-y-2 border-b border-border px-3 py-2.5">
+        {/* User-controlled filters run after processed EES records are excluded. */}
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+          className="shrink-0 space-y-2 border-b border-border px-3 py-2.5"
+        >
           <div className="flex items-center gap-1.5 rounded-lg border border-border bg-muted px-2.5 py-1.5">
             <Search size={11} className="shrink-0 text-muted-foreground" />
             <input
@@ -1886,29 +1518,33 @@ function Step1SelectSB({
               <option value="Unsynced">Unsynced</option>
             </select>
           </div>
-        </div>
+        </motion.div>
 
         {/* List header */}
-        <div className="shrink-0 px-3 py-1.5 flex items-center gap-1.5" style={{ background: "linear-gradient(135deg, #0E1B93, #0242DB)", borderBottom: "1px solid var(--border)" }}>
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.3, delay: 0.06 }}
+          className="shrink-0 px-3 py-1.5 flex items-center gap-1.5"
+          style={{ background: "linear-gradient(135deg, #0E1B93, #0242DB)", borderBottom: "1px solid var(--border)" }}
+        >
           <Database size={9} className="text-white/70" />
           <span className="text-[9px] font-semibold text-white/90">
-            {useDummyData ? "Presentation Dataset — Service Bulletins" : "Main Database — Service Bulletins"}
+            Main Database — Service Bulletins
           </span>
           <span className="ml-auto text-[9px] text-white/60">
-            {useDummyData
-              ? `${visibleSBs.length} of ${allSBs.length} presentation records`
-              : `${visibleSBs.length} shown · ${allSBs.length} received from API`}
+            {`${visibleSBs.length} available${hiddenProcessedEesCount ? ` · ${hiddenProcessedEesCount} processed hidden` : ""}`}
           </span>
-        </div>
+        </motion.div>
 
         {/* SB list */}
         <div className="flex-1 overflow-y-auto">
-          {!useDummyData && serviceBulletinQuery.isLoading && (
+          {serviceBulletinQuery.isLoading && (
             <div className="flex items-center justify-center gap-2 px-3 py-8 text-[11px] text-muted-foreground">
               <Loader2 size={13} className="animate-spin" /> Loading Service Bulletins…
             </div>
           )}
-          {!useDummyData && !serviceBulletinQuery.isLoading && serviceBulletinQuery.error && (
+          {!serviceBulletinQuery.isLoading && serviceBulletinQuery.error && (
             <div className="px-4 py-8 text-center">
               <AlertCircle size={18} className="mx-auto mb-2 text-destructive" />
               <p className="text-[11px] text-destructive">{serviceBulletinQuery.error}</p>
@@ -1922,7 +1558,16 @@ function Step1SelectSB({
             const isUnsynced = sb.syncStatus === "Unsynced";
             const isLoadingDetail = detailLoadingId === sb.backendId;
             return (
-              <div key={sb.id + i} onClick={() => handleSelectSB(sb)}
+              <motion.div
+                key={sb.id + i}
+                initial={{ opacity: 0, y: 10, scale: 0.985 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                transition={{
+                  duration: 0.3,
+                  delay: Math.min(i * 0.035, 0.28),
+                  ease: [0.22, 1, 0.36, 1],
+                }}
+                onClick={() => handleSelectSB(sb)}
                 className="px-3 py-2.5 cursor-pointer hover:bg-accent/50 transition-colors"
                 style={{ borderBottom: "1px solid var(--border)", background: isSelected ? "rgba(2,66,219,0.07)" : "transparent" }}>
                 <div className="flex items-start gap-2">
@@ -1972,15 +1617,22 @@ function Step1SelectSB({
                     </div>
                   </div>
                 </div>
-              </div>
+              </motion.div>
             );
           })}
-          {(!serviceBulletinQuery.isLoading || useDummyData) && (!serviceBulletinQuery.error || useDummyData) && visibleSBs.length === 0 && (
-            <div className="px-3 py-8 text-center text-[11px] text-muted-foreground">
-              {allSBs.length === 0
-                ? "No Service Bulletins were returned by the API."
-                : "No Service Bulletins match the selected filters."}
-            </div>
+          {!serviceBulletinQuery.isLoading && !serviceBulletinQuery.error && visibleSBs.length === 0 && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.98 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.28 }}
+              className="px-3 py-8 text-center text-[11px] text-muted-foreground"
+            >
+              {allSBs.length === 0 && hiddenProcessedEesCount > 0
+                ? "All Service Bulletins already have an EES process."
+                : allSBs.length === 0
+                  ? "No Service Bulletins were returned by the API."
+                  : "No Service Bulletins match the selected filters."}
+            </motion.div>
           )}
         </div>
 
@@ -2452,9 +2104,6 @@ function Step2SelectCategory({
   onToggleDoc?: () => void;
 }) {
   const sb: DBServiceBulletin | null = data.selectedSB || null;
-  const presentationSB = sb?.isPresentationDummy
-    ? sb as EESPresentationServiceBulletin
-    : null;
   const fleet = data.fleet || sb?.fleet || "";
   const isUnsyncedSB: boolean = !!data.isUnsyncedSB;
 
@@ -2510,11 +2159,7 @@ function Step2SelectCategory({
   const [generating, setGenerating] = useState(false);
   const [hasAIContent, setHasAIContent] = useState((Boolean(data.summarized) || hasExtractedAI) && !requiresManualEES);
   const [remarks, setRemarks] = useState(
-    requiresManualEES
-      ? sb?.isPresentationDummy
-        ? sb.evaluations.map(item => item.remarks).filter(Boolean).join("\n\n")
-        : ""
-      : data.remarks || extractedRemarks,
+    requiresManualEES ? "" : data.remarks || extractedRemarks,
   );
   const [manualDraft, setManualDraft] = useState<Record<string, unknown>>(
     data.manualDraft || {},
@@ -2546,7 +2191,6 @@ function Step2SelectCategory({
       !requiresManualEES
       || selectedTemplate !== "citilink"
       || !sb?.backendId
-      || sb.isPresentationDummy
     ) {
       return;
     }
@@ -2579,7 +2223,7 @@ function Step2SelectCategory({
     return () => {
       disposed = true;
     };
-  }, [data.aiSummary, generatedEesDocument, requiresManualEES, sb?.backendId, sb?.isPresentationDummy, selectedTemplate]);
+  }, [data.aiSummary, generatedEesDocument, requiresManualEES, sb?.backendId, selectedTemplate]);
 
   const generatedEvaluations = activeGeneratedEesDocument?.evaluations?.length
     ? activeGeneratedEesDocument.evaluations
@@ -2593,7 +2237,7 @@ function Step2SelectCategory({
     : sb?.references || [];
   const generatedApplicable = getEvaluationApplicable(
     generatedEvaluations,
-    sb?.isPresentationDummy ? "Yes" : "-",
+    "-",
   );
   const generatedRep = getEvaluationRep(
     activeGeneratedEesDocument,
@@ -2605,7 +2249,6 @@ function Step2SelectCategory({
     selectedSB: sb,
     generatedEesDocument: activeGeneratedEesDocument,
     aiSummary: activeAiSummary,
-    relationshipStatus: sb?.relationshipStatus,
     eesNumber,
     bulletinNumber: sb ? sb.id : "—",
     bulletinRevision: sb?.revision || "-",
@@ -2640,7 +2283,6 @@ function Step2SelectCategory({
     aiConfidence,
     eesTemplate: selectedTemplate,
     fleetTemplate: fleetTpl,
-    citilinkOptions: presentationSB?.citilinkOptions,
     ...(!requiresManualEES ? {
       evaluations: generatedEvaluations,
       taskType: sb?.taskType || "-",
@@ -2654,43 +2296,26 @@ function Step2SelectCategory({
       categorySource: "AI Assigned",
     } : {}),
     ...(requiresManualEES ? {
-      effectivitySB: sb?.isPresentationDummy ? sb.engineType : "",
-      taskType: sb?.isPresentationDummy
-        ? sb.taskType
-        : activeGeneratedEesDocument?.taskType || sb?.taskType || "",
-      applicable: sb?.isPresentationDummy ? "Yes" : generatedApplicable,
-      rep: sb?.isPresentationDummy ? (sb.rep || "N/A") : generatedRep,
-      dueAt: sb?.isPresentationDummy ? sb.compliance : "",
-      warranty: sb?.isPresentationDummy ? (sb.warranty || "N/A") : "",
-      description: sb?.isPresentationDummy
-        ? sb.evaluations.map(item => item.requirementDesc).filter(Boolean).join("\n\n")
-        : extractedDescription,
+      effectivitySB: "",
+      taskType: activeGeneratedEesDocument?.taskType || sb?.taskType || "",
+      applicable: generatedApplicable,
+      rep: generatedRep,
+      dueAt: "",
+      warranty: "",
+      description: extractedDescription,
       ...(sb?.title ? { subject: sb.title } : {}),
-      references: sb?.isPresentationDummy ? sb.references : generatedReferences,
-      referencesRaw: sb?.isPresentationDummy
-        ? sb.references.join(", ")
-        : generatedReferences.join("; "),
-      dueCompliance: sb?.isPresentationDummy ? sb.compliance : "",
-      remarks: sb?.isPresentationDummy
-        ? sb.evaluations.map(item => item.remarks).filter(Boolean).join("\n\n")
-        : remarks || extractedRemarks,
-      evaluations: sb?.isPresentationDummy ? sb.evaluations : generatedEvaluations,
+      references: generatedReferences,
+      referencesRaw: generatedReferences.join("; "),
+      dueCompliance: "",
+      remarks: remarks || extractedRemarks,
+      evaluations: generatedEvaluations,
       ...(sb?.issuedDate ? { eesIssuedDate: sb.issuedDate.slice(0, 10) } : {}),
       bulletinType: "Service Bulletin",
       ...(fleet ? { aircraftType: fleet } : {}),
-      effectivity: sb?.isPresentationDummy ? sb.affectedEngine : "",
-      ...(sb?.isPresentationDummy ? {
-        unitConcern: ["TEA-2"],
-        reasonOfEvaluation: "Evaluate fleet applicability, compliance impact, and implementation requirements.",
-        evaluationResult: sb.evaluations.map(item => item.remarks).filter(Boolean).join("\n\n"),
-        engineeringAction: "Yes",
-        managementApproval: ["TEA"],
-      } : {
-        ...((remarks || extractedRemarks)
-          ? { evaluationResult: remarks || extractedRemarks }
-          : {}),
-      }),
-      ...(presentationSB?.citilinkOptions ?? {}),
+      effectivity: "",
+      ...((remarks || extractedRemarks)
+        ? { evaluationResult: remarks || extractedRemarks }
+        : {}),
       categorySource: "AI Classified — Manual EES Required",
     } : {}),
     remarks,
@@ -2778,7 +2403,7 @@ function Step2SelectCategory({
 
     // Engineering Action and Further Implementation are operator decisions.
     // Consequence is intentionally excluded because it is supplied by the backend.
-    if (isCitilinkTemplate && !presentationSB) {
+    if (isCitilinkTemplate) {
       if (!sb?.backendId) {
         toast.error("Service Bulletin ID is not available. Citilink review fields could not be saved.");
         return;
@@ -3184,30 +2809,15 @@ function Step3Applicability({
 }) {
   const fleet = data.fleet || "";
   const backendId = data.selectedSB?.backendId as string | undefined;
-  const presentationSB = data.selectedSB?.isPresentationDummy
-    ? data.selectedSB as EESPresentationServiceBulletin
-    : null;
   const applicabilityQuery = useServiceBulletinApplicability(backendId);
-  const presentationApplicability = useMemo(
-    () => presentationSB ? createPresentationApplicability(presentationSB) : null,
-    [presentationSB],
-  );
-  const applicabilityResult = presentationApplicability ?? applicabilityQuery.data;
+  const applicabilityResult = applicabilityQuery.data;
   const [isGeneratingEes, setIsGeneratingEes] = useState(false);
-  const isApplicabilityLoading = !presentationSB && applicabilityQuery.isLoading;
+  const isApplicabilityLoading = applicabilityQuery.isLoading;
   const canContinue = Boolean(applicabilityResult) && !isApplicabilityLoading && !isGeneratingEes;
 
   const handleGenerateAndContinue = async () => {
     if (!applicabilityResult || isGeneratingEes) return;
     setIsGeneratingEes(true);
-
-    if (presentationSB) {
-      await new Promise(resolve => setTimeout(resolve, 850));
-      onNext(applicabilityResult, createPresentationEesDocument(presentationSB));
-      setIsGeneratingEes(false);
-      toast.success("Presentation EES generated successfully.");
-      return;
-    }
 
     if (!backendId) {
       setIsGeneratingEes(false);
@@ -3670,7 +3280,7 @@ function Step4PreviewOnlyReview({
   );
   const [manualOverrides, setManualOverrides] = useState<Record<string, unknown>>({});
   const [editApplicability, setEditApplicability] = useState(
-    requiresManualInput ? (ees?.applicability ?? "") : (ees?.applicability || "ESN: 960367, 892138, 962784, 876434, 962771"),
+    ees?.applicability ?? "",
   );
   const [editAffectedESNs, setEditAffectedESNs] = useState<string[]>(
     parseListEntries(
@@ -3694,15 +3304,13 @@ function Step4PreviewOnlyReview({
   const [editReferences, setEditReferences] = useState(
     Array.isArray(ees?.references)
       ? ees.references.join(", ")
-      : requiresManualInput ? (ees?.references ?? "") : (ees?.references || "AMM 75-31-01, IPC 75-30-00, EO 10000127027"),
+      : ees?.references ?? "",
   );
   const [editDueCompliance, setEditDueCompliance] = useState(
-    requiresManualInput ? (ees?.dueCompliance ?? "") : (ees?.dueCompliance || "12 months / 3,000 FC"),
+    ees?.dueCompliance ?? "",
   );
   const [editRemarks, setEditRemarks] = useState(
-    requiresManualInput
-      ? (ees?.remarks ?? "")
-      : ees?.remarks || "AI assessment indicates that this Service Bulletin is applicable to the identified engines and should be incorporated at the next scheduled shop visit in accordance with the referenced maintenance data. No immediate operational restriction is identified.",
+    ees?.remarks ?? "",
   );
   const isGEClassification = ees?.categorySystem === "GE";
   const [editGECategory, setEditGECategory] = useState(ees?.geCategory || "");
@@ -3731,24 +3339,14 @@ function Step4PreviewOnlyReview({
       ? editGECategory || ees?.eesCategory || ""
       : ees?.eesCategory || "",
   );
-  const approvalTargetRole = getPresentationApprovalTarget(
+  const approvalTargetRole = getApprovalTarget(
     approvalOperator,
     approvalCategory,
   );
-  const presentationSB = ees?.selectedSB?.isPresentationDummy
-    ? ees.selectedSB as EESPresentationServiceBulletin
-    : null;
-  const presentationApprovers = getPresentationApprovers(
-    approvalOperator,
-    approvalTargetRole,
-  ).map(approver => ({ ...approver, id: String(approver.id) }));
   const [backendApprovers, setBackendApprovers] = useState<ApprovalCandidate[]>([]);
-  const [approversLoading, setApproversLoading] = useState(!presentationSB);
+  const [approversLoading, setApproversLoading] = useState(true);
   const [approversError, setApproversError] = useState<string | null>(null);
-  const eligibleApprovers = (presentationSB
-    ? presentationApprovers
-    : backendApprovers
-  ).filter(approver => (
+  const eligibleApprovers = backendApprovers.filter(approver => (
     normalizeApprovalOperator(
       typeof approver.operator === "string" ? approver.operator : approver.operator.code,
       typeof approver.operator === "string" ? undefined : approver.operator.name,
@@ -3768,8 +3366,6 @@ function Step4PreviewOnlyReview({
   ) ?? null;
 
   useEffect(() => {
-    if (presentationSB) return;
-
     const controller = new AbortController();
     const role = approvalTargetRole === "SECOND_ENGINEER"
       ? "ENGINEER"
@@ -3804,7 +3400,7 @@ function Step4PreviewOnlyReview({
     });
 
     return () => controller.abort();
-  }, [approvalOperator, approvalTargetRole, presentationSB]);
+  }, [approvalOperator, approvalTargetRole]);
   const selectedGECategoryData = getGECategory(editGECategory);
   const selectedGEImpactData = getGEImpact(editGEImpact);
   const hasGEOverride = isGEClassification && (
@@ -3869,7 +3465,6 @@ function Step4PreviewOnlyReview({
   const hasBackendApprovalDocument = Boolean(
     approvalEesId
     && ees?.selectedSB?.backendId
-    && !presentationSB,
   );
   const isLocalOnlyDraft = Boolean(
     ees?.isUnsyncedSB && !hasBackendApprovalDocument,
@@ -3903,7 +3498,7 @@ function Step4PreviewOnlyReview({
 
     const auditEntry: ManualEditAudit = {
       event: "AI-generated EES edited manually",
-      editedBy: "Ahmad Fikri Ramadhan",
+      editedBy: ees?.preparedBy || ees?.selectedSB?.createdBy || "Current user",
       editedAt: formatDateTime(new Date()),
     };
 
@@ -3957,7 +3552,7 @@ function Step4PreviewOnlyReview({
 
     const geOverrideAudit = hasGEOverride ? {
       event: "GE classification overridden by engineer",
-      editedBy: "Ahmad Fikri Ramadhan",
+      editedBy: ees?.preparedBy || ees?.selectedSB?.createdBy || "Current user",
       editedAt: formatDateTime(new Date()),
       fromCategory: ees?.aiSuggestedGECategory || ees?.geCategory,
       toCategory: editGECategory,
@@ -3971,7 +3566,7 @@ function Step4PreviewOnlyReview({
       isUnsyncedSB: isLocalOnlyDraft,
     };
 
-    if (presentationSB || isLocalOnlyDraft) {
+    if (isLocalOnlyDraft) {
       onSaveData(updatedEes, attachments);
       setDraftSaved(true);
       setHasUnsaved(false);
@@ -4040,38 +3635,6 @@ function Step4PreviewOnlyReview({
 
     onSaveData(currentEES, attachments);
 
-    if (presentationSB && selectedApprover) {
-      const generatedDocument = currentEES.generatedEesDocument
-        ?? createPresentationEesDocument(presentationSB);
-      submitPresentationApprovalScenario({
-        id: generatedDocument.id,
-        eesNumber: generatedDocument.eesNumber || currentEES.eesNumber || "EES Demo",
-        sourceSbId: presentationSB.id,
-        bulletinNumber: presentationSB.id,
-        bulletinTitle: presentationSB.title,
-        category: presentationSB.sbCategory,
-        operatorCode: approvalOperator === "CITILINK" ? "QG" : "GA",
-        operatorName: approvalOperator === "CITILINK"
-          ? "Citilink Indonesia"
-          : "Garuda Indonesia",
-        fleet: presentationSB.fleet,
-        engineType: presentationSB.engineType,
-        taskType: presentationSB.taskType || null,
-        references: presentationSB.references,
-        creatorName: "Ahmad Fikri Ramadhan",
-        createdAt: new Date().toISOString(),
-        reviewerTarget: approvalTargetRole,
-        assignedToId: Number(selectedApprover.id),
-        assignedToName: selectedApprover.name,
-        assignedToRole: selectedApprover.role,
-        assignedToUnit: selectedApprover.unit,
-        hasGarudaPdf: approvalOperator === "GARUDA",
-        hasCitilinkPdf: approvalOperator === "CITILINK",
-      });
-      onNext();
-      return;
-    }
-
     if (isLocalOnlyDraft) {
       onNext();
       return;
@@ -4112,24 +3675,6 @@ function Step4PreviewOnlyReview({
     if (eesEditBlockReason) {
       toast.error(eesEditBlockReason);
       setManualEditMode(false);
-      return;
-    }
-
-    if (presentationSB) {
-      setIsFinishingEdit(true);
-      await new Promise(resolve => setTimeout(resolve, 700));
-      const updatedEes = {
-        ...currentEES,
-        generatedEesDocument: createPresentationEesDocument(presentationSB),
-      };
-      onSaveData(updatedEes, attachments);
-      setManualOverrides({});
-      setHasUnsaved(false);
-      setDraftSaved(true);
-      setManualEditMode(false);
-      setPdfVersion(version => version + 1);
-      setIsFinishingEdit(false);
-      toast.success("Presentation EES updated and preview refreshed.");
       return;
     }
 
@@ -4214,7 +3759,7 @@ function Step4PreviewOnlyReview({
             <History size={13} className="mt-0.5 shrink-0 text-muted-foreground" />
             <div className="text-[11px] leading-relaxed text-muted-foreground">
               Audit event: <span className="font-semibold text-foreground">AI-generated EES edited manually</span><br />
-              User: <span className="font-semibold text-foreground">Ahmad Fikri Ramadhan</span>
+              User: <span className="font-semibold text-foreground">{ees?.preparedBy || ees?.selectedSB?.createdBy || "Current user"}</span>
             </div>
           </div>
         </div>
@@ -4395,7 +3940,7 @@ function Step4PreviewOnlyReview({
             <Shield size={14} className="text-blue-600" />
             <div className="text-xs font-semibold text-foreground">Signature & Approval Routing</div>
             <span className="rounded-full border border-violet-500/25 bg-violet-500/10 px-2 py-0.5 text-[9px] font-bold text-violet-600">
-              Dummy user directory
+              Backend user directory
             </span>
           </div>
 
@@ -4615,44 +4160,31 @@ function Step5Done({
       ? "citilink"
       : "garuda");
   const isUnsynced = Boolean(ees?.isUnsyncedSB);
-  const presentationSB = ees?.selectedSB?.isPresentationDummy
-    ? ees.selectedSB as EESPresentationServiceBulletin
-    : null;
   const sourceSbId = String(
     ees?.selectedSB?.backendId
     || ees?.generatedEesDocument?.sourceSbId
     || "",
   ).trim();
-  const canUseBackendExport = Boolean(sourceSbId) && !presentationSB;
-  const initialApprovalStages = presentationSB
-    ? createPresentationApprovalStages(presentationSB).map(stage => (
-        stage.id === ees?.approvalTargetRole && ees?.approvalAssigneeName
-          ? {
-              ...stage,
-              assignee: ees.approvalAssigneeName,
-              role: ees.approvalAssigneeUnit
-                ? `${stage.role} · ${ees.approvalAssigneeUnit}`
-                : stage.role,
-            }
-          : stage
-      ))
-    : [];
-  const [approvalStages] = useState(initialApprovalStages);
-  const currentApprovalStage = approvalStages.find(stage => stage.status === "CURRENT") ?? null;
-  const approvalComplete = approvalStages.length > 0
-    && approvalStages.every(stage => stage.status === "COMPLETED");
-  const presentationApprovalActive = Boolean(presentationSB) && !isUnsynced;
+  const canUseBackendExport = Boolean(sourceSbId);
+  const reviewStatus = String(
+    ees?.generatedEesDocument?.reviewStatus
+    || ees?.reviewStatus
+    || (isUnsynced ? "UNSYNCED" : "PENDING"),
+  ).toUpperCase();
+  const approvalComplete = reviewStatus === "APPROVED";
   const workflowStatus = isUnsynced
     ? "Unsynced"
     : approvalComplete
       ? "Approved"
-      : currentApprovalStage
-        ? `Waiting for ${currentApprovalStage.label}`
-        : "Waiting for Manager Review";
+      : reviewStatus.replaceAll("_", " ");
   const templateLabel = template === "citilink" ? "Citilink CT-3-18.1" : "Garuda EES";
   const auditTrail = [
-    { event: "EES Created", user: "Ahmad Fikri Ramadhan", time: formatDateTime("2026-07-08T09:10:00+07:00"), color: "#0242DB" },
-    { event: "System Generated", user: "ORBIT System", time: formatDateTime("2026-07-08T09:12:00+07:00"), color: "#10B981" },
+    ...(ees?.generatedEesDocument?.createdAt ? [{
+      event: "EES Created",
+      user: ees?.preparedBy || ees?.selectedSB?.createdBy || "—",
+      time: formatDateTime(ees.generatedEesDocument.createdAt),
+      color: "#0242DB",
+    }] : []),
     ...(ees?.manualEditAudit ? [{
       event: ees.manualEditAudit.event,
       user: ees.manualEditAudit.editedBy,
@@ -4665,25 +4197,14 @@ function Step5Done({
       time: ees.geOverrideAudit.editedAt,
       color: "#EF4444",
     }] : []),
-    { event: `Output template selected: ${templateLabel}`, user: "Ahmad Fikri Ramadhan", time: formatDateTime("2026-07-08T09:20:00+07:00"), color: template === "citilink" ? "#10B981" : "#0242DB" },
-    { event: "Applicability Reviewed", user: "Ahmad Fikri Ramadhan", time: formatDateTime("2026-07-08T09:28:00+07:00"), color: "#818CF8" },
-    { event: "Draft Saved", user: "Ahmad Fikri Ramadhan", time: formatDateTime("2026-07-08T09:44:00+07:00"), color: "#8B5CF6" },
-    {
-      event: isUnsynced
-        ? "Completed as Unsynced Draft"
-        : `Submitted to ${initialApprovalStages.find(stage => stage.status === "CURRENT")?.label || "Manager Review"}`,
-      user: "Ahmad Fikri Ramadhan",
-      time: formatDateTime("2026-07-08T09:52:00+07:00"),
-      color: "#F59E0B",
-    },
-    ...approvalStages
-      .filter(stage => stage.id !== "CREATOR" && stage.status === "COMPLETED")
-      .map(stage => ({
-        event: `${stage.label} Approved`,
-        user: stage.assignee,
-        time: formatDateTime(stage.completedAt),
-        color: "#10B981",
-      })),
+    ...((ees?.generatedEesDocument?.reviewActions || []).map((action: any) => ({
+      event: String(action.action || action.status || "Review action").replaceAll("_", " "),
+      user: action.reviewer?.name || action.reviewer?.username || action.reviewedBy || "—",
+      time: formatDateTime(action.createdAt || action.reviewedAt),
+      color: String(action.action || action.status).toUpperCase() === "APPROVED"
+        ? "#10B981"
+        : "#F59E0B",
+    }))),
   ];
   const previewOperator = template;
   const previewPdfUrl = canUseBackendExport
@@ -4708,7 +4229,7 @@ function Step5Done({
             ? "EES Completed as Unsynced Draft"
             : approvalComplete
               ? "EES Approved"
-              : `EES Submitted to ${currentApprovalStage?.label || "Manager Review"}`}
+              : `EES ${workflowStatus}`}
         </div>
         <div className="flex items-center justify-center gap-2 mt-2">
           <span
@@ -4727,71 +4248,12 @@ function Step5Done({
           {isUnsynced ? (
             <>The EES review is complete and retained as an <span className="font-semibold text-foreground">Unsynced draft</span>. It can be submitted for manager approval after the SB is synchronized.</>
           ) : approvalComplete ? (
-            <>The dummy EES has completed every required approval stage and is now ready for controlled distribution.</>
+            <>The EES has completed every required approval stage and is ready for controlled distribution.</>
           ) : (
-            <>Your EES has been submitted. <span className="font-semibold text-foreground">{currentApprovalStage?.assignee || "Davy Febrynzki"}</span> ({currentApprovalStage?.role || "Manager · TEA-2"}) will review and approve.</>
+            <>Your EES has been submitted and is currently in the backend approval workflow.</>
           )}
         </div>
       </div>
-
-      {presentationApprovalActive && (
-        <div className="mb-4 rounded-xl border border-border bg-card p-4">
-          <div className="mb-3 flex flex-wrap items-center gap-2">
-            <Shield size={13} className="text-blue-600" />
-            <div className="text-xs font-semibold text-foreground">Dummy Approval Process</div>
-            <span className="rounded-full border border-violet-500/25 bg-violet-500/10 px-2 py-0.5 text-[9px] font-bold text-violet-600">
-              Presentation simulation
-            </span>
-          </div>
-
-          <div className="grid gap-2 md:grid-cols-3">
-            {approvalStages.map((stage, index) => {
-              const completed = stage.status === "COMPLETED";
-              const current = stage.status === "CURRENT";
-              return (
-                <div
-                  key={stage.id}
-                  className="relative rounded-xl px-3 py-3"
-                  style={{
-                    border: current
-                      ? "1px solid rgba(2,66,219,0.45)"
-                      : completed
-                        ? "1px solid rgba(16,185,129,0.3)"
-                        : "1px solid var(--border)",
-                    background: current
-                      ? "rgba(2,66,219,0.06)"
-                      : completed
-                        ? "rgba(16,185,129,0.05)"
-                        : "var(--muted)",
-                  }}
-                >
-                  <div className="mb-2 flex items-center justify-between gap-2">
-                    <div
-                      className="flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-bold"
-                      style={{
-                        background: completed ? "#10B981" : current ? "#0242DB" : "var(--border)",
-                        color: completed || current ? "white" : "var(--muted-foreground)",
-                      }}
-                    >
-                      {completed ? <Check size={12} /> : index + 1}
-                    </div>
-                    <span className={`text-[9px] font-bold ${completed ? "text-emerald-500" : current ? "text-blue-600" : "text-muted-foreground"}`}>
-                      {stage.status}
-                    </span>
-                  </div>
-                  <div className="text-[11px] font-semibold text-foreground">{stage.label}</div>
-                  <div className="mt-0.5 text-[10px] text-muted-foreground">{stage.assignee}</div>
-                  <div className="text-[9px] text-muted-foreground">{stage.role}</div>
-                  {stage.completedAt && (
-                    <div className="mt-2 text-[9px] text-emerald-600">{formatDateTime(stage.completedAt)}</div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-        </div>
-      )}
 
       {/* EES Summary */}
       <div className="rounded-xl p-4 mb-4" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
@@ -4807,8 +4269,8 @@ function Step5Done({
             ] : []),
             ["Bulletin Number", ees?.bulletinNumber || "—"],
             ["Output Template", templateLabel],
-            ["Prepared By", "Ahmad Fikri Ramadhan"],
-            [isUnsynced ? "Completed Date" : "Submitted Date", formatDateTime("2026-07-08T09:52:00+07:00")],
+            ["Prepared By", ees?.preparedBy || ees?.selectedSB?.createdBy || "—"],
+            [isUnsynced ? "Completed Date" : "Submitted Date", formatDateTime(ees?.submittedAt || ees?.generatedEesDocument?.createdAt)],
             ["Status", workflowStatus],
           ].map(([l, v]) => (
             <div key={l}>
@@ -4954,17 +4416,9 @@ function Step5Done({
   );
 }
 
-function EESGeneratorWorkflowContent({
-  dataSourceMode,
-}: {
-  dataSourceMode: DataSourceMode;
-}) {
-  const useDummyData = dataSourceMode === "dummy";
+function EESGeneratorWorkflowContent() {
   const [timelineMinimized, setTimelineMinimized] = useState(false);
-  const eesReviewHistory = useEESReviewHistory({
-    enabled: !useDummyData,
-    initialRecords: useDummyData ? PRESENTATION_EES_REVIEW_HISTORY : [],
-  });
+  const eesReviewHistory = useEESReviewHistory();
   const {
     currentStep,
     stepData,
@@ -4991,7 +4445,12 @@ function EESGeneratorWorkflowContent({
 
   // ── Main workflow view — persistent 3-panel layout ──
   return (
-    <div className="flex flex-col h-full overflow-y-auto">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.34, ease: [0.22, 1, 0.36, 1] }}
+      className="flex flex-col h-full overflow-y-auto"
+    >
       {/* Fullscreen document modal */}
       <AnimatePresence initial={false}>
       {showFullscreenDoc && selectedSB && (
@@ -5024,8 +4483,14 @@ function EESGeneratorWorkflowContent({
       <section className="flex h-full shrink-0 flex-col overflow-hidden">
       {/* ── Page header ── */}
       <motion.div
+        initial={{ opacity: 0, y: -10 }}
+        animate={{ opacity: 1, y: 0 }}
         layout
-        transition={{ layout: { duration: 0.28, ease: [0.22, 1, 0.36, 1] } }}
+        transition={{
+          opacity: { duration: 0.3 },
+          y: { duration: 0.34, ease: [0.22, 1, 0.36, 1] },
+          layout: { duration: 0.28, ease: [0.22, 1, 0.36, 1] },
+        }}
         className="relative flex shrink-0 items-center justify-between gap-6 px-6 pb-4 pt-5"
       >
         <div className="min-w-0">
@@ -5180,7 +4645,6 @@ function EESGeneratorWorkflowContent({
           {currentStep === 1 && (
               <Step1SelectSB
                 saved={stepData.step1}
-                useDummyData={useDummyData}
                 onSave={(d: any) => setStepData((p: any) => ({ ...p, step1: d }))}
                 onNext={(d: any) => { setStepData((p: any) => ({ ...p, step1: d })); advance(1); }}
               />
@@ -5272,17 +4736,10 @@ function EESGeneratorWorkflowContent({
           onPageChange={eesReviewHistory.setPage}
         />
       )}
-    </div>
+    </motion.div>
   );
 }
 
 export function EESGeneratorWorkflow() {
-  const { dataSourceMode } = useApp();
-
-  return (
-    <EESGeneratorWorkflowContent
-      key={dataSourceMode}
-      dataSourceMode={dataSourceMode}
-    />
-  );
+  return <EESGeneratorWorkflowContent />;
 }

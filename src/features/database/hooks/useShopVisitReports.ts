@@ -2,7 +2,6 @@
 
 import axios from "axios";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { DUMMY_SHOP_VISIT_REPORTS } from "../data/shopVisitReportDummyData";
 import { getShopVisitReports } from "../services/shopVisitReportApi";
 import type { ShopVisitReport, ShopVisitReportListResponse } from "../types";
 
@@ -20,7 +19,7 @@ function getErrorMessage(error: unknown) {
   return error instanceof Error ? error.message : "Data SVR tidak dapat dimuat.";
 }
 
-export function useShopVisitReports(useDummyData = false) {
+export function useShopVisitReports() {
   const abortRef = useRef<AbortController | null>(null);
   const [items, setItems] = useState<ShopVisitReport[]>([]);
   const [selected, setSelected] = useState<ShopVisitReport | null>(null);
@@ -38,31 +37,9 @@ export function useShopVisitReports(useDummyData = false) {
 
   const search = useCallback(async (esn?: string, page = 1) => {
     abortRef.current?.abort();
-    const normalizedEsn = esn?.trim().toLowerCase();
     setError(null);
     setHasSearched(true);
     setSelected(null);
-
-    if (useDummyData) {
-      const matchingReports = normalizedEsn
-        ? DUMMY_SHOP_VISIT_REPORTS.filter(report =>
-            report.engineSerialNumber.toLowerCase() === normalizedEsn
-          )
-        : DUMMY_SHOP_VISIT_REPORTS;
-      const limit = 20;
-      const offset = (page - 1) * limit;
-      const paginatedReports = matchingReports.slice(offset, offset + limit);
-      setIsLoading(false);
-      setItems(paginatedReports);
-      setSelected(paginatedReports[0] ?? null);
-      setMeta({
-        total: matchingReports.length,
-        page,
-        limit,
-        totalPages: Math.max(1, Math.ceil(matchingReports.length / limit)),
-      });
-      return;
-    }
 
     const controller = new AbortController();
     abortRef.current = controller;
@@ -84,7 +61,7 @@ export function useShopVisitReports(useDummyData = false) {
     } finally {
       if (!controller.signal.aborted) setIsLoading(false);
     }
-  }, [useDummyData]);
+  }, []);
 
   const reset = useCallback(() => {
     abortRef.current?.abort();

@@ -15,7 +15,7 @@ import {
   Mail,
 } from "lucide-react";
 import { useLogin } from "@/features/authentication";
-import { CrossfadeBackgroundVideo } from "@/features/authentication/components/CrossfadeBackgroundVideo";
+import { ShaderBackground } from "@/features/authentication/components/ShaderBackground";
 import { SHOW_NOTIFICATION_TOAST_AFTER_LOGIN } from "@/features/notifications";
 import { SmoothLoadingScreen } from "@/components/orbit/SmoothNavigationProvider";
 
@@ -76,7 +76,7 @@ export default function LoginPage() {
       />
       <SmoothLoadingScreen visible={isLoading || isRedirecting} />
 
-      <CrossfadeBackgroundVideo src="/shader.mp4" />
+      <ShaderBackground className="absolute inset-0 h-full w-full" />
       <div
         aria-hidden="true"
         className="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(3,15,62,0.68)_0%,rgba(4,70,220,0.24)_48%,rgba(2,12,48,0.72)_100%)]"

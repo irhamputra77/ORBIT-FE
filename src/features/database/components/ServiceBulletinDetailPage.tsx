@@ -53,50 +53,6 @@ function MetadataItem({ label, value }: { label: string; value: React.ReactNode 
   );
 }
 
-function DummyDocumentPreview({
-  sb,
-  documentType,
-}: {
-  sb: ServiceBulletinViewModel;
-  documentType: "SB" | "EES";
-}) {
-  return (
-    <div className="min-h-[640px] bg-slate-200 p-6 sm:p-10">
-      <div className="mx-auto max-w-4xl overflow-hidden rounded-sm bg-white shadow-lg">
-        <div className={`px-8 py-7 text-white ${documentType === "SB" ? "bg-slate-800" : "bg-blue-800"}`}>
-          <p className="text-xs uppercase tracking-[0.25em]">{documentType === "SB" ? sb.manufacturer : "Engineering Evaluation Sheet"}</p>
-          <h3 className="mt-2 text-xl font-bold">{documentType === "SB" ? sb.bulletinNumber : sb.eesNumber}</h3>
-          <p className="mt-1 text-xs text-white/70">Dummy document preview</p>
-        </div>
-        <div className="space-y-8 p-8">
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Title</p>
-            <p className="mt-2 text-base font-semibold leading-7 text-slate-900">{sb.title}</p>
-          </div>
-          <div className="grid gap-5 border-y border-slate-200 py-6 sm:grid-cols-3">
-            <div><p className="text-[10px] uppercase text-slate-500">Revision</p><p className="mt-1 font-semibold text-slate-900">{sb.revision || "—"}</p></div>
-            <div><p className="text-[10px] uppercase text-slate-500">Fleet</p><p className="mt-1 font-semibold text-slate-900">{sb.aircraftType || "—"}</p></div>
-            <div><p className="text-[10px] uppercase text-slate-500">Category</p><p className="mt-1 font-semibold text-slate-900">{sb.category ?? "—"}</p></div>
-          </div>
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">{documentType === "SB" ? "Effectivity" : "Evaluation Summary"}</p>
-            <p className="mt-2 text-sm leading-6 text-slate-700">
-              {documentType === "SB"
-                ? sb.effectivityRange || sb.effectivityType || "Effectivity data is not available."
-                : sb.evaluations.map((item) => item.requirementDesc).filter(Boolean).join(" ") || "No evaluation item."}
-            </p>
-          </div>
-          <div>
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">References</p>
-            <p className="mt-2 text-sm leading-6 text-slate-700">{sb.references.join(", ") || "—"}</p>
-          </div>
-          <div className="h-32 rounded border border-dashed border-slate-300 bg-slate-50" />
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function relationPresentation(type: ServiceBulletinRelationship["type"]) {
   switch (type) {
     case "SUPERSEDED": return { label: "Superseded", className: "border-violet-200 bg-violet-50 text-violet-700" };
@@ -204,15 +160,9 @@ export function ServiceBulletinDetailPage({ id }: { id: string }) {
             <h1 className="text-2xl font-bold text-foreground">{sb.bulletinNumber || sb.id}</h1>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">{sb.title || "Judul Service Bulletin tidak tersedia."}</p>
           </div>
-          {detail.isDummy ? (
-            <button type="button" disabled title="Download tidak tersedia untuk dummy document" className="inline-flex shrink-0 cursor-not-allowed items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white opacity-60">
-              <Download size={16} /> Download SB (Dummy)
-            </button>
-          ) : (
-            <a href={getServiceBulletinPdfUrl(sb.id, "download")} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800">
-              <Download size={16} /> Download SB
-            </a>
-          )}
+          <a href={getServiceBulletinPdfUrl(sb.id, "download")} className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800">
+            <Download size={16} /> Download SB
+          </a>
         </div>
       </div>
 
@@ -223,9 +173,7 @@ export function ServiceBulletinDetailPage({ id }: { id: string }) {
               <div className="flex items-center gap-2"><FileText className="text-blue-700" size={18} /><h2 className="font-semibold text-foreground">SB Preview</h2></div>
               <span className="text-[10px] text-muted-foreground">{sb.originalFilename || "Original Service Bulletin"}</span>
             </div>
-            {detail.isDummy
-              ? <DummyDocumentPreview sb={sb} documentType="SB" />
-              : <iframe src={getServiceBulletinPdfUrl(sb.id, "view")} title={`Preview ${sb.bulletinNumber}`} className="h-[720px] w-full bg-muted" />}
+            <iframe src={getServiceBulletinPdfUrl(sb.id, "view")} title={`Preview ${sb.bulletinNumber}`} className="h-[720px] w-full bg-muted" />
           </section>
 
           {categorySupportsExtraction && (
@@ -312,15 +260,9 @@ export function ServiceBulletinDetailPage({ id }: { id: string }) {
               <>
                 <div className="flex flex-wrap items-center justify-between gap-3 bg-muted/30 px-5 py-3">
                   <div><p className="text-xs font-semibold text-foreground">{detail.eesDocument?.eesNumber || sb.eesNumber || "Approved EES"}</p><p className="text-[10px] text-muted-foreground">{detail.eesDocument?.evaluations.length ?? sb.evaluations.length} evaluation item</p></div>
-                  {detail.isDummy ? (
-                    <button type="button" disabled className="inline-flex cursor-not-allowed items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white opacity-60"><Download size={13} /> Download EES (Dummy)</button>
-                  ) : (
-                    <a href={getEesPdfUrl(sb.id, eesOperator, "download")} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white"><Download size={13} /> Download EES</a>
-                  )}
+                  <a href={getEesPdfUrl(sb.id, eesOperator, "download")} className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white"><Download size={13} /> Download EES</a>
                 </div>
-                {detail.isDummy
-                  ? <DummyDocumentPreview sb={sb} documentType="EES" />
-                  : <iframe src={getEesPdfUrl(sb.id, eesOperator, "view")} title={`Approved EES ${sb.eesNumber || sb.bulletinNumber}`} className="h-[720px] w-full bg-muted" />}
+                <iframe src={getEesPdfUrl(sb.id, eesOperator, "view")} title={`Approved EES ${sb.eesNumber || sb.bulletinNumber}`} className="h-[720px] w-full bg-muted" />
               </>
             )}
           </section>

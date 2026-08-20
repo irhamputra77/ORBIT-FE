@@ -19,7 +19,6 @@ import {
   ShieldCheck,
   Wrench,
 } from "lucide-react";
-import { useApp } from "@/app/(orbit)/context/AppContext";
 import { formatDateTime } from "@/lib/date-time";
 import { useShopVisitReportDetail } from "../hooks/useShopVisitReportDetail";
 import {
@@ -153,8 +152,7 @@ function EmptyState({ children }: { children: React.ReactNode }) {
 }
 
 export function ShopVisitReportDetailPage({ id }: { id: string }) {
-  const { dataSourceMode } = useApp();
-  const detail = useShopVisitReportDetail(id, dataSourceMode === "dummy");
+  const detail = useShopVisitReportDetail(id);
 
   if (detail.isLoading) {
     return (
@@ -197,7 +195,6 @@ export function ShopVisitReportDetailPage({ id }: { id: string }) {
   }
 
   const report = detail.report;
-  const isDummy = report.isDummy === true;
   const configuration = report.configurationReport ?? [];
   const llpStatus = report.llpStatus ?? [];
   const svrSbStatus = report.sbStatus ?? [];
@@ -205,8 +202,6 @@ export function ShopVisitReportDetailPage({ id }: { id: string }) {
   const accessories = report.accessoriesList ?? [];
   const complianceRecords = report.complianceRecords ?? [];
   const hasPdf = Boolean(
-    !isDummy
-    &&
     report.storedFileName
     && report.storedFileName.toUpperCase() !== "PENDING",
   );
@@ -268,11 +263,6 @@ export function ShopVisitReportDetailPage({ id }: { id: string }) {
               <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[10px] font-semibold text-blue-700">
                 Shop Visit Report
               </span>
-              {isDummy && (
-                <span className="rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[10px] font-semibold text-violet-700">
-                  Dummy data
-                </span>
-              )}
               <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold ${report.engine?.active === false ? "border-slate-200 bg-slate-50 text-slate-600" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
                 Engine {report.engine?.active === false ? "Inactive" : "Active"}
               </span>
@@ -377,19 +367,6 @@ export function ShopVisitReportDetailPage({ id }: { id: string }) {
                 title={`SVR PDF ${report.id}`}
                 className="h-[760px] w-full bg-slate-100"
               />
-            ) : isDummy ? (
-              <div className="p-5">
-                <div className="flex min-h-[360px] flex-col items-center justify-center rounded-xl border border-dashed border-violet-200 bg-violet-50/60 p-8 text-center">
-                  <FileText className="mb-3 text-violet-600" size={34} />
-                  <h3 className="text-sm font-semibold text-foreground">
-                    Dummy SVR document preview
-                  </h3>
-                  <p className="mt-2 max-w-md text-xs leading-5 text-muted-foreground">
-                    Preview PDF backend dinonaktifkan saat mode Dummy Data.
-                    Gunakan data terstruktur di bawah ini untuk menguji alur detail SVR.
-                  </p>
-                </div>
-              </div>
             ) : (
               <div className="p-5">
                 <EmptyState>
@@ -599,14 +576,8 @@ export function ShopVisitReportDetailPage({ id }: { id: string }) {
               <MetadataItem label="Created At" value={formatDateTime(report.createdAt)} />
               <MetadataItem label="Updated At" value={formatDateTime(report.updatedAt)} />
             </dl>
-            <div className={`mt-4 rounded-xl border p-3 text-xs leading-5 ${
-              isDummy
-                ? "border-violet-200 bg-violet-50 text-violet-800"
-                : "border-blue-200 bg-blue-50 text-blue-800"
-            }`}>
-              {isDummy
-                ? "Record ini berasal dari dummy data lokal. Endpoint PDF tidak dipanggil."
-                : "PDF ditampilkan melalui endpoint view terautentikasi. Gunakan tombol download untuk mengambil file asli dari backend."}
+            <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs leading-5 text-blue-800">
+              PDF ditampilkan melalui endpoint view terautentikasi. Gunakan tombol download untuk mengambil file asli dari backend.
             </div>
           </Section>
 

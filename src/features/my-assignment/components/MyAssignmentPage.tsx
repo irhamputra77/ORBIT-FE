@@ -15,13 +15,10 @@ import {
   User,
 } from "lucide-react";
 import { formatDateTime } from "@/lib/date-time";
-import { useApp } from "@/app/(orbit)/context/AppContext";
-import { usePresentationApprovalScenarios } from "@/lib/presentation/ees-approval-scenario";
 import {
   useServiceBulletins,
   type ServiceBulletinViewModel,
 } from "@/features/service-bulletins";
-import { mapPresentationScenarioToAssignment } from "../adapters/presentationAssignmentAdapter";
 import { useEesAssignments } from "../hooks/useEesAssignments";
 import type { EesAssignment } from "../types";
 
@@ -95,10 +92,8 @@ function OutputBadges({ assignment }: { assignment: EesAssignment }) {
 
 export function MyAssignmentPage() {
   const router = useSmoothNavigation();
-  const { dataSourceMode } = useApp();
   const [page, setPage] = useState(1);
-  const scenarios = usePresentationApprovalScenarios();
-  const apiQuery = useEesAssignments(page, 20, dataSourceMode === "backend");
+  const query = useEesAssignments(page, 20, true);
   const serviceBulletinQuery = useServiceBulletins(
     {
       page: 1,
@@ -106,26 +101,8 @@ export function MyAssignmentPage() {
       sortBy: "receivedAt",
       sortOrder: "desc",
     },
-    { fetchAll: true, enabled: dataSourceMode === "backend" },
+    { fetchAll: true, enabled: true },
   );
-  const dummyItems = useMemo(
-    () => scenarios.map(mapPresentationScenarioToAssignment),
-    [scenarios],
-  );
-  const query = dataSourceMode === "dummy"
-    ? {
-        items: dummyItems,
-        pagination: {
-          page: 1,
-          limit: 20,
-          total: dummyItems.length,
-          totalPages: 1,
-        },
-        isLoading: false,
-        error: null,
-        retry: () => undefined,
-      }
-    : apiQuery;
   const statusCounts = useMemo(() => query.items.reduce<Record<string, number>>((counts, item) => {
     counts[item.reviewStatus] = (counts[item.reviewStatus] || 0) + 1;
     return counts;
@@ -152,7 +129,7 @@ export function MyAssignmentPage() {
   };
   const refresh = () => {
     query.retry();
-    if (dataSourceMode === "backend") serviceBulletinQuery.retry();
+    serviceBulletinQuery.retry();
   };
 
   return (
@@ -190,7 +167,7 @@ export function MyAssignmentPage() {
         <div className="overflow-hidden rounded-xl border border-border shadow-sm">
           <div className="flex items-center justify-between bg-gradient-to-br from-indigo-950 to-blue-700 px-4 py-3">
             <div className="flex items-center gap-2"><ClipboardList size={14} className="text-white" /><span className="text-sm font-semibold text-white">EES Documents — {query.pagination.total} items</span></div>
-            <div className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-400" /><span className="text-[10px] text-white/70">{dataSourceMode === "dummy" ? "Presentation scenario" : "Live API"}</span></div>
+            <div className="flex items-center gap-1.5"><span className="h-1.5 w-1.5 animate-pulse rounded-full bg-green-400" /><span className="text-[10px] text-white/70">Live API</span></div>
           </div>
 
           <div className="overflow-x-auto">

@@ -23,7 +23,6 @@ import {
 import { useEffect, useState, type ReactNode } from "react";
 
 import { Skeleton } from "@/components/ui/skeleton";
-import { useApp } from "@/app/(orbit)/context/AppContext";
 import {
   Tabs,
   TabsContent,
@@ -45,9 +44,6 @@ import {
 } from "@/features/service-bulletins";
 import { formatDateTime } from "@/lib/date-time";
 import { useSmoothNavigation } from "@/components/orbit/SmoothNavigationProvider";
-import { usePresentationApprovalScenarios } from "@/lib/presentation/ees-approval-scenario";
-
-import { mapPresentationScenarioToEesDetail } from "../adapters/presentationEesDetailAdapter";
 import { EesPdfViewer } from "./EesPdfViewer";
 
 type PageError = {
@@ -300,13 +296,6 @@ export function EesDetailPage({
   sourceSbId: string;
 }) {
   const router = useSmoothNavigation();
-  const { dataSourceMode } = useApp();
-  const presentationScenarios = usePresentationApprovalScenarios();
-  const presentationScenario = dataSourceMode === "dummy"
-    ? presentationScenarios.find((scenario) => (
-        scenario.id === eesId || scenario.sourceSbId === sourceSbId
-      )) ?? null
-    : null;
   const [document, setDocument] = useState<ServiceBulletinEesDocument | null>(null);
   const [serviceBulletin, setServiceBulletin] = useState<ServiceBulletinViewModel | null>(null);
   const [approval, setApproval] = useState<EesApprovalState | null>(null);
@@ -325,27 +314,6 @@ export function EesDetailPage({
       setError(null);
       setApproval(null);
       setApplicability(null);
-
-      if (dataSourceMode === "dummy") {
-        if (!presentationScenario) {
-          setDocument(null);
-          setServiceBulletin(null);
-          setError({
-            kind: "not-found",
-            message: "Data dummy EES tidak ditemukan pada skenario presentasi.",
-          });
-          setIsLoading(false);
-          return;
-        }
-
-        const detail = mapPresentationScenarioToEesDetail(presentationScenario);
-        setDocument(detail.document);
-        setServiceBulletin(detail.serviceBulletin);
-        setApproval(detail.approval);
-        setApplicability(detail.applicability);
-        setIsLoading(false);
-        return;
-      }
 
       if (!sourceSbId) {
         setError({
@@ -400,8 +368,6 @@ export function EesDetailPage({
     void load();
     return () => controller.abort();
   }, [
-    dataSourceMode,
-    presentationScenario,
     requestVersion,
     sourceSbId,
   ]);
@@ -446,12 +412,8 @@ export function EesDetailPage({
   const lastUpdated = latestActivityDate(document, reviewHistory);
   const aircraftType = document.aircraftType || serviceBulletin.aircraftType;
   const eesOperator = resolveEesOperator(document, serviceBulletin);
-  const viewUrl = presentationScenario
-    ? null
-    : getEesPdfUrl(sourceSbId, eesOperator, "view");
-  const downloadUrl = presentationScenario
-    ? null
-    : getEesPdfUrl(sourceSbId, eesOperator, "download");
+  const viewUrl = getEesPdfUrl(sourceSbId, eesOperator, "view");
+  const downloadUrl = getEesPdfUrl(sourceSbId, eesOperator, "download");
   const pdfProcessing = [
     serviceBulletin.status,
     serviceBulletin.draftStatus,
@@ -496,28 +458,19 @@ export function EesDetailPage({
           </div>
 
           <div className="flex flex-wrap gap-2">
-            {!presentationScenario && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => router.push(`/database/service-bulletins/${encodeURIComponent(sourceSbId)}`)}
-                  className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-xs font-semibold text-foreground hover:bg-accent"
-                >
-                  View Source SB <ExternalLink size={12} />
-                </button>
-                <a
-                  href={downloadUrl || undefined}
-                  className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-700 px-3 text-xs font-semibold text-white hover:bg-blue-800"
-                >
-                  <Download size={13} /> Download PDF
-                </a>
-              </>
-            )}
-            {presentationScenario && (
-              <span className="inline-flex h-9 items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 text-xs font-semibold text-amber-700">
-                Presentation Document
-              </span>
-            )}
+            <button
+              type="button"
+              onClick={() => router.push(`/database/service-bulletins/${encodeURIComponent(sourceSbId)}`)}
+              className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-xs font-semibold text-foreground hover:bg-accent"
+            >
+              View Source SB <ExternalLink size={12} />
+            </button>
+            <a
+              href={downloadUrl}
+              className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-700 px-3 text-xs font-semibold text-white hover:bg-blue-800"
+            >
+              <Download size={13} /> Download PDF
+            </a>
           </div>
         </div>
 
@@ -525,7 +478,7 @@ export function EesDetailPage({
       {[
             ["Operator", serviceBulletin.operatorId || "—"],
             ["Fleet", aircraftType || "—"],
-            ["Assigned engineer", presentationScenario?.assignedToName || formatStatus(approval?.assignedRole)],
+            ["Assigned engineer", formatStatus(approval?.assignedRole)],
             ["EES created", formatDateTime(document.createdAt)],
             ["Last updated", formatDateTime(lastUpdated)],
             ["SB status", formatStatus(serviceBulletin.status)],
@@ -598,17 +551,6 @@ export function EesDetailPage({
             viewUrl={viewUrl}
             downloadUrl={downloadUrl}
             processing={pdfProcessing}
-            presentationPreview={presentationScenario
-              ? {
-                  operatorName: presentationScenario.operatorName,
-                  bulletinNumber: presentationScenario.bulletinNumber,
-                  fleet: presentationScenario.fleet,
-                  engineType: presentationScenario.engineType,
-                  taskType: presentationScenario.taskType,
-                  references: presentationScenario.references,
-                  reviewStatus: presentationScenario.status,
-                }
-              : undefined}
           />
         </main>
 
@@ -631,16 +573,8 @@ export function EesDetailPage({
               <InformationRow label="Fleet" value={aircraftType} />
               <InformationRow
                 label="Assigned to"
-                value={presentationScenario?.assignedToName || formatStatus(approval?.assignedRole)}
+                value={formatStatus(approval?.assignedRole)}
               />
-              {presentationScenario && (
-                <InformationRow
-                  label="Reviewer role"
-                  value={presentationScenario.reviewerTarget === "MANAGER"
-                    ? "Manager"
-                    : "Second Engineer"}
-                />
-              )}
               <InformationRow label="Source SB" value={serviceBulletin.bulletinNumber} />
             </dl>
           </PanelSection>
@@ -772,9 +706,8 @@ export function EesDetailPage({
             <div className="grid gap-3 lg:grid-cols-3">
               <button
                 type="button"
-                disabled={Boolean(presentationScenario)}
                 onClick={() => router.push(`/database/service-bulletins/${encodeURIComponent(sourceSbId)}`)}
-                className="group flex min-h-28 items-start justify-between gap-4 rounded-xl border border-border bg-muted/30 p-4 text-left transition-colors hover:bg-muted disabled:cursor-default disabled:hover:bg-muted/30"
+                className="group flex min-h-28 items-start justify-between gap-4 rounded-xl border border-border bg-muted/30 p-4 text-left transition-colors hover:bg-muted"
               >
                 <div className="min-w-0">
                   <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
@@ -866,9 +799,8 @@ export function EesDetailPage({
               </a>
               <button
                 type="button"
-                disabled={Boolean(presentationScenario)}
                 onClick={() => router.push(`/database/service-bulletins/${encodeURIComponent(sourceSbId)}`)}
-                className="flex items-center justify-between gap-3 rounded-xl border border-border bg-muted/30 p-4 text-left hover:bg-muted disabled:cursor-default disabled:opacity-60"
+                className="flex items-center justify-between gap-3 rounded-xl border border-border bg-muted/30 p-4 text-left hover:bg-muted"
               >
                 <div className="min-w-0">
                   <p className="truncate text-xs font-semibold text-foreground">

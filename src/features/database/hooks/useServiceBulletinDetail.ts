@@ -10,19 +10,16 @@ import {
   type ServiceBulletinViewModel,
 } from "@/features/service-bulletins";
 import { getServiceBulletinReviewHistory } from "../services/serviceBulletinReviewApi";
-import { getDummyServiceBulletin } from "../data/serviceBulletinDummyData";
 
 export function useServiceBulletinDetail(id: string) {
-  const dummyServiceBulletin = getDummyServiceBulletin(id);
-  const [serviceBulletin, setServiceBulletin] = useState<ServiceBulletinViewModel | null>(dummyServiceBulletin);
+  const [serviceBulletin, setServiceBulletin] = useState<ServiceBulletinViewModel | null>(null);
   const [eesDocument, setEesDocument] = useState<ServiceBulletinEesDocument | null>(null);
   const [reviewActions, setReviewActions] = useState<ServiceBulletinReviewAction[]>([]);
-  const [isLoading, setIsLoading] = useState(!dummyServiceBulletin);
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [requestVersion, setRequestVersion] = useState(0);
 
   useEffect(() => {
-    if (dummyServiceBulletin) return;
     const controller = new AbortController();
 
     async function load() {
@@ -67,15 +64,14 @@ export function useServiceBulletinDetail(id: string) {
 
     void load();
     return () => controller.abort();
-  }, [dummyServiceBulletin, id, requestVersion]);
+  }, [id, requestVersion]);
 
   return {
-    serviceBulletin: dummyServiceBulletin ?? serviceBulletin,
+    serviceBulletin,
     eesDocument,
-    reviewActions: dummyServiceBulletin?.reviewActions ?? reviewActions,
-    isLoading: dummyServiceBulletin ? false : isLoading,
+    reviewActions,
+    isLoading,
     error,
-    isDummy: Boolean(dummyServiceBulletin),
     retry: () => setRequestVersion((version) => version + 1),
   };
 }

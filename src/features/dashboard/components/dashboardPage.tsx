@@ -11,19 +11,9 @@ import {
   FileText,
   RefreshCw,
   Sparkles,
-  UploadCloud,
 } from "lucide-react";
 import { useEngineeringReviewSummary } from "@/features/dashboard";
-import { useServiceBulletins } from "@/features/service-bulletins";
-import { featureFlags } from "@/lib/config/features";
 import { formatDateTime } from "@/lib/date-time";
-import {
-  fleetMetrics,
-  recentActivities,
-  reviewHistory,
-  serviceBulletins,
-  uploadHistory,
-} from "@/data/mockData";
 import { useApp } from "../../../app/(orbit)/context/AppContext";
 import type { DashboardMetric } from "../types";
 
@@ -48,10 +38,8 @@ type WorkflowRow = {
 
 function MetricCard({
   metric,
-  sourceLabel,
 }: {
   metric: DashboardMetric;
-  sourceLabel: "Live" | "Scenario";
 }) {
   const router = useSmoothNavigation();
   const Icon = metric.icon;
@@ -129,30 +117,16 @@ function formatMonth(month?: string) {
 
 export default function DashboardPage() {
   const router = useSmoothNavigation();
-  const { userRole, dataSourceMode } = useApp();
+  const { userRole } = useApp();
   const isManager = userRole === "manager";
-  const useBackend = dataSourceMode === "backend";
-
-  const summaryQuery = useEngineeringReviewSummary({}, useBackend);
-  const recentServiceBulletins = useServiceBulletins(
-    {
-      page: 1,
-      limit: 6,
-      sortBy: "receivedAt",
-      sortOrder: "desc",
-    },
-    { enabled: !useBackend },
-  );
+  const summaryQuery = useEngineeringReviewSummary({}, true);
 
   const summary = summaryQuery.data;
-  const approvalAvailable = useBackend || featureFlags.eesApproval;
-  const loading = useBackend
-    ? summaryQuery.isLoading && !summary
-    : recentServiceBulletins.isLoading;
+  const approvalAvailable = true;
+  const loading = summaryQuery.isLoading && !summary;
   const loadingValue = loading ? "…" : "—";
 
-  const metrics: DashboardMetric[] = useBackend
-    ? isManager
+  const metrics: DashboardMetric[] = isManager
       ? [
           {
             label: "Pending EES Approval",
@@ -220,92 +194,9 @@ export default function DashboardPage() {
             icon: CheckCircle2,
             path: "/ees-generator",
           },
-        ]
-    : isManager
-      ? [
-          {
-            label: "Pending EES Approval",
-            value: featureFlags.eesApproval ? fleetMetrics.pendingReviews : "—",
-            helper: featureFlags.eesApproval
-              ? "Waiting for second engineer review"
-              : "Backend approval belum tersedia",
-            color: "#F59E0B",
-            icon: Clock3,
-            path: "/manager-ees-review",
-            disabled: !featureFlags.eesApproval,
-          },
-          {
-            label: "Approved EES",
-            value: featureFlags.eesApproval ? fleetMetrics.approvedEES : "—",
-            helper: "Presentation scenario",
-            color: "#10B981",
-            icon: CheckCircle2,
-            path: "/manager-ees-review",
-            disabled: !featureFlags.eesApproval,
-          },
-          {
-            label: "Service Bulletins",
-            value: recentServiceBulletins.isLoading
-              ? "…"
-              : recentServiceBulletins.total,
-            helper: "Presentation scenario records",
-            color: "#0242DB",
-            icon: FileText,
-            path: "/database",
-          },
-          {
-            label: "Average Review Time",
-            value: featureFlags.eesApproval
-              ? `${fleetMetrics.avgReviewTime} days`
-              : "—",
-            helper: "Presentation scenario",
-            color: "#818CF8",
-            icon: RefreshCw,
-            path: "/manager-ees-review",
-            disabled: !featureFlags.eesApproval,
-          },
-        ]
-      : [
-          {
-            label: "Assigned Reviews",
-            value: 6,
-            helper: "Open, draft, and submitted assignments",
-            color: "#0242DB",
-            icon: ClipboardList,
-            path: "/my-assignment",
-          },
-          {
-            label: "Pending Reviews",
-            value: featureFlags.eesApproval ? fleetMetrics.pendingReviews : "—",
-            helper: "Presentation scenario",
-            color: "#F59E0B",
-            icon: Clock3,
-            path: "/second-engineer-review",
-            disabled: !featureFlags.eesApproval,
-          },
-          {
-            label: "Service Bulletins",
-            value: recentServiceBulletins.isLoading
-              ? "…"
-              : recentServiceBulletins.total,
-            helper: "Presentation scenario records",
-            color: "#00A7D6",
-            icon: FileText,
-            path: "/ees-generator",
-          },
-          {
-            label: "Approved EES",
-            value: featureFlags.eesApproval ? fleetMetrics.approvedEES : "—",
-            helper: "Presentation scenario",
-            color: "#10B981",
-            icon: CheckCircle2,
-            path: "/ees-generator",
-            disabled: !featureFlags.eesApproval,
-          },
         ];
 
-  const newServiceBulletins: BulletinRow[] = useBackend
-    ? (summary?.serviceBulletins.recent ?? []).slice(0, 5).map((sb) => ({
+  const newServiceBulletins: BulletinRow[] = (summary?.serviceBulletins.recent ?? []).slice(0, 5).map((sb) => ({
         id: sb.id,
         bulletinNumber: sb.bulletinNumber || "-",
         title: sb.title,
@@ -316,33 +207,11 @@ export default function DashboardPage() {
         detail:
           [sb.manufacturer, sb.operator?.code].filter(Boolean).join(" · ")
           || "Operator not assigned",
-      }))
-    : recentServiceBulletins.items.slice(0, 5).map((sb) => ({
-        id: sb.id,
-        bulletinNumber: sb.bulletinNumber || "-",
-        title: sb.title,
-        fleet: sb.aircraftType || "-",
-        category: 0,
-        status: "Open",
-        receivedAt: sb.receivedAt,
-        detail: sb.aircraftType || "-",
       }));
 
-  const queueRows: BulletinRow[] = useBackend
-    ? newServiceBulletins
-    : serviceBulletins.slice(0, 6).map((sb) => ({
-        id: sb.id,
-        bulletinNumber: sb.id,
-        title: sb.title,
-        fleet: sb.fleet,
-        category: sb.sbCategory,
-        status: sb.status,
-        receivedAt: sb.issuedDate,
-        detail: `${sb.affectedESNs.length} ESN · ${sb.affectedPartNumbers.length} PN`,
-      }));
+  const queueRows: BulletinRow[] = newServiceBulletins;
 
-  const workflowActivities: WorkflowRow[] = useBackend
-    ? [
+  const workflowActivities: WorkflowRow[] = [
         ...(summary?.secondEngineerApprovals.recent ?? []).map((item) => ({
           id: item.id,
           type: "EES" as const,
@@ -364,26 +233,9 @@ export default function DashboardPage() {
           (left, right) =>
             new Date(right.time).getTime() - new Date(left.time).getTime(),
         )
-        .slice(0, 6)
-    : recentActivities
-        .filter((activity) => ["EES", "SB"].includes(activity.type))
-        .slice(0, 5)
-        .map((activity) => ({
-          id: activity.id,
-          type: activity.type as "EES" | "SB",
-          action: activity.action,
-          detail: activity.user,
-          time: activity.time,
-        }));
+        .slice(0, 6);
 
-  const mockSBESNs = new Set(
-    serviceBulletins.flatMap((item) => item.affectedESNs),
-  );
-  const mockSBParts = new Set(
-    serviceBulletins.flatMap((item) => item.affectedPartNumbers),
-  );
-  const coverage = useBackend
-    ? [
+  const coverage = [
         {
           label: "New SB",
           value: summary?.serviceBulletins.newCount ?? loadingValue,
@@ -408,36 +260,9 @@ export default function DashboardPage() {
           icon: FileCheck2,
           color: "#10B981",
         },
-      ]
-    : [
-        {
-          label: "SB Records",
-          value: serviceBulletins.length,
-          icon: FileText,
-          color: "#0242DB",
-        },
-        {
-          label: "Unique ESNs",
-          value: mockSBESNs.size,
-          icon: CheckCircle2,
-          color: "#10B981",
-        },
-        {
-          label: "Affected Parts",
-          value: mockSBParts.size,
-          icon: AlertTriangle,
-          color: "#F59E0B",
-        },
-        {
-          label: "Reviewed EES",
-          value: reviewHistory.length,
-          icon: FileCheck2,
-          color: "#818CF8",
-        },
       ];
 
-  const latestUpdate = useBackend
-    ? [
+  const latestUpdate = [
         ...(summary?.serviceBulletins.recent.map((item) => item.createdAt) ?? []),
         ...(summary?.secondEngineerApprovals.recent.map(
           (item) => item.submittedAt,
@@ -445,12 +270,7 @@ export default function DashboardPage() {
       ].sort(
         (left, right) =>
           new Date(right).getTime() - new Date(left).getTime(),
-      )[0]
-    : "2026-07-17T09:00:00+07:00";
-
-  const activeDocuments = uploadHistory
-    .filter((document) => ["SB", "IQ03", "SVR", "EDS"].includes(document.docType))
-    .slice(0, 5);
+      )[0];
 
   return (
     <div className="mx-auto max-w-[1600px] p-6">
@@ -472,31 +292,29 @@ export default function DashboardPage() {
           <div className="mt-2 flex items-center gap-2 text-[10px] text-muted-foreground">
             <span
               className={`h-1.5 w-1.5 rounded-full ${
-                summaryQuery.error && useBackend
+                summaryQuery.error
                   ? "bg-red-500"
                   : "bg-emerald-500"
               }`}
             />
-            {useBackend ? "Live API" : "Presentation scenario"}
+            Live API
             {latestUpdate ? ` · Updated ${formatDateTime(latestUpdate)}` : ""}
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          {useBackend && (
-            <button
-              type="button"
-              onClick={summaryQuery.retry}
-              disabled={summaryQuery.isLoading}
-              className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2.5 text-xs font-semibold text-foreground hover:bg-accent disabled:opacity-60"
-            >
-              <RefreshCw
-                size={13}
-                className={summaryQuery.isLoading ? "animate-spin" : ""}
-              />
-              Refresh
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={summaryQuery.retry}
+            disabled={summaryQuery.isLoading}
+            className="flex items-center gap-2 rounded-xl border border-border bg-card px-3 py-2.5 text-xs font-semibold text-foreground hover:bg-accent disabled:opacity-60"
+          >
+            <RefreshCw
+              size={13}
+              className={summaryQuery.isLoading ? "animate-spin" : ""}
+            />
+            Refresh
+          </button>
           {!isManager && (
             <button
               type="button"
@@ -524,7 +342,7 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      {useBackend && summaryQuery.error && (
+      {summaryQuery.error && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-500/20 bg-red-500/[0.06] px-4 py-3">
           <div>
             <p className="text-xs font-semibold text-red-600">
@@ -546,11 +364,7 @@ export default function DashboardPage() {
 
       <section className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {metrics.map((metric) => (
-          <MetricCard
-            key={metric.label}
-            metric={metric}
-            sourceLabel={useBackend ? "Live" : "Scenario"}
-          />
+          <MetricCard key={metric.label} metric={metric} />
         ))}
       </section>
 
@@ -579,25 +393,8 @@ export default function DashboardPage() {
                 Loading Service Bulletins…
               </div>
             )}
-            {!useBackend
-              && !recentServiceBulletins.isLoading
-              && recentServiceBulletins.error && (
-                <div className="px-4 py-6 text-center">
-                  <p className="text-[10px] text-destructive">
-                    {recentServiceBulletins.error}
-                  </p>
-                  <button
-                    type="button"
-                    onClick={recentServiceBulletins.retry}
-                    className="mt-2 text-[10px] font-semibold text-blue-600"
-                  >
-                    Try again
-                  </button>
-                </div>
-              )}
             {!loading
               && !summaryQuery.error
-              && !recentServiceBulletins.error
               && newServiceBulletins.length === 0 && (
                 <div className="px-4 py-8 text-center text-[10px] text-muted-foreground">
                   No Service Bulletins available.
@@ -609,9 +406,7 @@ export default function DashboardPage() {
                 type="button"
                 onClick={() =>
                   router.push(
-                    useBackend
-                      ? `/database/service-bulletins/${encodeURIComponent(sb.id)}`
-                      : "/ees-generator",
+                    `/database/service-bulletins/${encodeURIComponent(sb.id)}`,
                   )
                 }
                 className="flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-accent/30"
@@ -674,13 +469,12 @@ export default function DashboardPage() {
             </button>
           </div>
           <div className="divide-y divide-border">
-            {useBackend && loading && (
+            {loading && (
               <div className="px-4 py-8 text-center text-[10px] text-muted-foreground">
                 Loading approval activity…
               </div>
             )}
-            {useBackend
-              && !loading
+            {!loading
               && !summaryQuery.error
               && summary?.secondEngineerApprovals.recent.length === 0 && (
                 <div className="flex min-h-40 flex-col items-center justify-center px-6 py-8 text-center">
@@ -690,8 +484,7 @@ export default function DashboardPage() {
                   </p>
                 </div>
               )}
-            {useBackend
-              && summary?.secondEngineerApprovals.recent.map((activity) => (
+            {summary?.secondEngineerApprovals.recent.map((activity) => (
                 <button
                   key={activity.id}
                   type="button"
@@ -731,17 +524,6 @@ export default function DashboardPage() {
                   />
                 </button>
               ))}
-            {!useBackend && (
-              <div className="flex min-h-40 flex-col items-center justify-center px-6 py-8 text-center">
-                <Clock3 size={22} className="mb-3 text-muted-foreground" />
-                <p className="text-[11px] font-semibold text-foreground">
-                  Approval data unavailable
-                </p>
-                <p className="mt-1 max-w-64 text-[10px] leading-relaxed text-muted-foreground">
-                  Switch data source to Backend API to load approval activity.
-                </p>
-              </div>
-            )}
           </div>
         </div>
 
@@ -758,9 +540,7 @@ export default function DashboardPage() {
             </div>
             <div className="rounded-xl bg-blue-500/10 px-3 py-2 text-center">
               <div className="text-xl font-bold text-blue-600">
-                {useBackend
-                  ? summary?.monthlyReviews.totalReviewed ?? loadingValue
-                  : "—"}
+                {summary?.monthlyReviews.totalReviewed ?? loadingValue}
               </div>
               <div className="text-[8px] font-semibold uppercase text-blue-600/70">
                 Reviewed
@@ -768,7 +548,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {useBackend && summary ? (
+          {summary ? (
             <>
               <div className="mb-4 grid grid-cols-3 gap-2">
                 {[
@@ -842,7 +622,7 @@ export default function DashboardPage() {
               </p>
               {!loading && (
                 <p className="mt-1 max-w-64 text-[10px] leading-relaxed text-muted-foreground">
-                  Switch data source to Backend API to load monthly statistics.
+                  Monthly review data is not available from the backend.
                 </p>
               )}
             </div>
@@ -937,9 +717,7 @@ export default function DashboardPage() {
                         type="button"
                         onClick={() =>
                           router.push(
-                            useBackend
-                              ? `/database/service-bulletins/${encodeURIComponent(sb.id)}`
-                              : "/ees-generator",
+                            `/database/service-bulletins/${encodeURIComponent(sb.id)}`,
                           )
                         }
                         className="flex items-center gap-1 whitespace-nowrap rounded-lg bg-blue-600 px-2.5 py-1.5 text-[10px] font-semibold text-white"
@@ -984,37 +762,6 @@ export default function DashboardPage() {
             ))}
           </div>
 
-          {!useBackend && (
-            <div className="mt-4 border-t border-border pt-4">
-              <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                <UploadCloud size={12} /> Processed data sources
-              </div>
-              <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-                {activeDocuments.map((document) => (
-                  <div
-                    key={document.fileName}
-                    className="flex items-center gap-3 rounded-lg border border-border px-3 py-2"
-                  >
-                    <span className="rounded bg-blue-500/10 px-1.5 py-0.5 text-[9px] font-bold text-blue-600">
-                      {document.docType}
-                    </span>
-                    <div className="min-w-0 flex-1 truncate text-[10px] font-medium text-foreground">
-                      {document.fileName}
-                    </div>
-                    <span
-                      className={`text-[9px] font-semibold ${
-                        document.status === "Processed"
-                          ? "text-emerald-500"
-                          : "text-amber-500"
-                      }`}
-                    >
-                      {document.status}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
 
         <div className="rounded-xl border border-border bg-card p-4">

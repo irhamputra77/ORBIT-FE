@@ -7,9 +7,9 @@ import {
   ChevronRight,
   Clock3,
   History,
-  Loader2,
   RefreshCw,
 } from "lucide-react";
+import { motion } from "motion/react";
 import { useSmoothNavigation } from "@/components/orbit/SmoothNavigationProvider";
 
 import type { EESHistoryPagination } from "../services/ees-review-service";
@@ -59,8 +59,20 @@ export function EESReviewHistorySection({
   };
 
   return (
-    <section className="shrink-0 border-t border-border bg-background px-6 py-5">
-      <div className="rounded-2xl border border-border bg-card shadow-sm">
+    <motion.section
+      initial={{ opacity: 0, y: 18 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, amount: 0.08 }}
+      transition={{ duration: 0.42, ease: [0.22, 1, 0.36, 1] }}
+      className="shrink-0 border-t border-border bg-background px-6 py-5"
+    >
+      <motion.div
+        initial={{ scale: 0.992 }}
+        whileInView={{ scale: 1 }}
+        viewport={{ once: true, amount: 0.08 }}
+        transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
+        className="rounded-2xl border border-border bg-card shadow-sm"
+      >
         <header className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-700">
@@ -79,9 +91,18 @@ export function EESReviewHistorySection({
         </header>
 
         {isLoading ? (
-          <div className="flex min-h-40 items-center justify-center gap-2 text-xs text-muted-foreground">
-            <Loader2 size={16} className="animate-spin" />
-            Memuat history EES...
+          <div className="space-y-0" role="status" aria-label="Memuat history EES">
+            {[0, 1, 2, 3].map(item => (
+              <div key={item} className="grid grid-cols-[1.4fr_1fr_1fr_0.7fr_0.8fr] gap-4 border-t border-border px-5 py-4 first:border-t-0">
+                {[0, 1, 2, 3, 4].map(column => (
+                  <div
+                    key={column}
+                    className={`h-3 animate-pulse rounded bg-muted ${column === 0 ? "w-4/5" : "w-3/4"}`}
+                  />
+                ))}
+              </div>
+            ))}
+            <span className="sr-only">Memuat history EES...</span>
           </div>
         ) : error ? (
           <div className="m-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-red-700">
@@ -115,12 +136,19 @@ export function EESReviewHistorySection({
                   </tr>
                 </thead>
                 <tbody>
-                  {records.map((record) => {
+                  {records.map((record, index) => {
                     const status = statusPresentation(record.status);
                     const StatusIcon = status.icon;
                     return (
-                      <tr
+                      <motion.tr
                         key={record.id}
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{
+                          duration: 0.3,
+                          delay: Math.min(index * 0.04, 0.3),
+                          ease: [0.22, 1, 0.36, 1],
+                        }}
                         role="link"
                         tabIndex={0}
                         onClick={() => openEesDetail(record)}
@@ -178,7 +206,7 @@ export function EESReviewHistorySection({
                             {record.status}
                           </span>
                         </td>
-                      </tr>
+                      </motion.tr>
                     );
                   })}
                 </tbody>
@@ -221,7 +249,7 @@ export function EESReviewHistorySection({
             </p>
           </div>
         )}
-      </div>
-    </section>
+      </motion.div>
+    </motion.section>
   );
 }

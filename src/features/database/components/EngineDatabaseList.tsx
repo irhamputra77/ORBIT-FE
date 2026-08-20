@@ -4,8 +4,6 @@ import axios from "axios";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { AlertCircle, ChevronRight, Loader2, Plane, Search } from "lucide-react";
-import { useApp } from "@/app/(orbit)/context/AppContext";
-import { DUMMY_SHOP_VISIT_REPORTS } from "../data/shopVisitReportDummyData";
 import type { EdsListItem } from "../edsTypes";
 import { getEdsList } from "../services/edsApi";
 import { getShopVisitReports } from "../services/shopVisitReportApi";
@@ -62,11 +60,10 @@ function aggregate(eds: EdsListItem[], svr: ShopVisitReport[]) {
 }
 
 export function EngineDatabaseList() {
-  const { dataSourceMode } = useApp();
   const [eds, setEds] = useState<EdsListItem[]>([]);
   const [svr, setSvr] = useState<ShopVisitReport[]>([]);
   const [query, setQuery] = useState("");
-  const [isLoading, setIsLoading] = useState(dataSourceMode === "backend");
+  const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
 
@@ -75,13 +72,6 @@ export function EngineDatabaseList() {
     async function load() {
       await Promise.resolve();
       if (controller.signal.aborted) return;
-      if (dataSourceMode === "dummy") {
-        setEds([]);
-        setSvr(DUMMY_SHOP_VISIT_REPORTS);
-        setIsLoading(false);
-        setError(null);
-        return;
-      }
       setIsLoading(true);
       setError(null);
       try {
@@ -99,7 +89,7 @@ export function EngineDatabaseList() {
     }
     void load();
     return () => controller.abort();
-  }, [dataSourceMode, version]);
+  }, [version]);
 
   const rows = useMemo(() => {
     const all = aggregate(eds, svr);

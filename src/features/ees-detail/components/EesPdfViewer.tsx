@@ -32,21 +32,11 @@ export function EesPdfViewer({
   viewUrl,
   downloadUrl,
   processing = false,
-  presentationPreview,
 }: {
   title: string;
   viewUrl: string | null;
   downloadUrl: string | null;
   processing?: boolean;
-  presentationPreview?: {
-    operatorName: string;
-    bulletinNumber: string;
-    fleet: string;
-    engineType: string;
-    taskType: string | null;
-    references: string[];
-    reviewStatus: string | null;
-  };
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [previewOpen, setPreviewOpen] = useState(true);
@@ -68,7 +58,7 @@ export function EesPdfViewer({
   }, []);
 
   useEffect(() => {
-    if (processing || presentationPreview || !viewUrl) return;
+    if (processing || !viewUrl) return;
 
     const controller = new AbortController();
     const pdfUrl = viewUrl;
@@ -114,7 +104,7 @@ export function EesPdfViewer({
 
     void checkAvailability();
     return () => controller.abort();
-  }, [presentationPreview, processing, requestVersion, viewUrl]);
+  }, [processing, requestVersion, viewUrl]);
 
   const previewUrl = useMemo(() => {
     if (!viewUrl) return "";
@@ -123,8 +113,6 @@ export function EesPdfViewer({
   }, [fitWidth, page, viewUrl, zoom]);
   const displayedStatus: PdfStatus = processing
     ? "processing"
-    : presentationPreview
-      ? "available"
     : viewUrl
       ? status
       : "unavailable";
@@ -255,96 +243,6 @@ export function EesPdfViewer({
                 <Skeleton className="h-10 w-full" />
                 <Skeleton className="mx-auto h-[620px] max-w-3xl" />
               </div>
-            ) : displayedStatus === "available" && presentationPreview ? (
-              <div className="min-h-[680px] overflow-auto p-4 sm:p-8">
-                <article
-                  className="mx-auto min-h-[620px] max-w-4xl bg-white shadow-xl"
-                  style={{ width: fitWidth ? "100%" : `${zoom}%` }}
-                >
-                  <div className="bg-blue-800 px-6 py-5 text-white sm:px-10">
-                    <div className="flex flex-wrap items-start justify-between gap-4">
-                      <div>
-                        <p className="text-lg font-bold uppercase tracking-wide">
-                          {presentationPreview.operatorName}
-                        </p>
-                        <p className="mt-1 text-xs uppercase tracking-[0.22em] text-blue-100">
-                          Engineering Evaluation Sheet
-                        </p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-[10px] text-blue-100">EES Number</p>
-                        <p className="font-mono text-sm font-semibold">{title}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-6 px-6 py-7 text-slate-800 sm:px-10">
-                    <div className="grid gap-4 border-b border-slate-200 pb-5 sm:grid-cols-3">
-                      {[
-                        ["Service Bulletin", presentationPreview.bulletinNumber],
-                        ["Fleet / Engine", `${presentationPreview.fleet} · ${presentationPreview.engineType}`],
-                        ["Review Status", formatPreviewValue(presentationPreview.reviewStatus)],
-                      ].map(([label, value]) => (
-                        <div key={label}>
-                          <p className="text-[9px] font-semibold uppercase tracking-wider text-slate-500">
-                            {label}
-                          </p>
-                          <p className="mt-1 text-xs font-semibold">{value}</p>
-                        </div>
-                      ))}
-                    </div>
-
-                    <section>
-                      <h3 className="text-[10px] font-bold uppercase tracking-wider text-slate-600">
-                        Evaluation Summary
-                      </h3>
-                      <div className="mt-3 overflow-hidden rounded-lg border border-slate-200">
-                        <div className="grid grid-cols-[140px_1fr] border-b border-slate-200 text-xs">
-                          <p className="bg-slate-50 p-3 font-semibold">Task Type</p>
-                          <p className="p-3">{presentationPreview.taskType || "—"}</p>
-                        </div>
-                        <div className="grid grid-cols-[140px_1fr] text-xs">
-                          <p className="bg-slate-50 p-3 font-semibold">Engineering Action</p>
-                          <p className="p-3">
-                            Comply in accordance with the Service Bulletin and approved maintenance data.
-                          </p>
-                        </div>
-                      </div>
-                    </section>
-
-                    <section>
-                      <h3 className="text-[10px] font-bold uppercase tracking-wider text-slate-600">
-                        References
-                      </h3>
-                      <ol className="mt-3 space-y-2 text-xs">
-                        {presentationPreview.references.map((reference, index) => (
-                          <li key={`${reference}-${index}`} className="flex gap-2">
-                            <span className="font-mono text-slate-400">{index + 1}.</span>
-                            <span>{reference}</span>
-                          </li>
-                        ))}
-                      </ol>
-                    </section>
-
-                    <div className="grid gap-4 border-t border-slate-200 pt-8 sm:grid-cols-2">
-                      <div className="rounded-lg border border-slate-200 p-4">
-                        <p className="text-[9px] uppercase tracking-wider text-slate-500">Prepared by</p>
-                        <p className="mt-8 border-t border-slate-300 pt-2 text-xs font-semibold">
-                          Ahmad Fikri Ramadhan
-                        </p>
-                      </div>
-                      <div className="rounded-lg border border-slate-200 p-4">
-                        <p className="text-[9px] uppercase tracking-wider text-slate-500">Reviewed by</p>
-                        <p className="mt-8 border-t border-slate-300 pt-2 text-xs font-semibold">
-                          {presentationPreview.reviewStatus === "APPROVED"
-                            ? "Approved reviewer"
-                            : "Pending reviewer signature"}
-                        </p>
-                      </div>
-                    </div>
-                  </div>
-                </article>
-              </div>
             ) : displayedStatus === "available" ? (
               <iframe
                 key={previewUrl}
@@ -379,15 +277,6 @@ export function EesPdfViewer({
       )}
     </section>
   );
-}
-
-function formatPreviewValue(value: string | null) {
-  if (!value) return "Pending";
-  return value
-    .toLowerCase()
-    .split("_")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
 }
 
 function PdfState({

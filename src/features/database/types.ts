@@ -13,7 +13,6 @@ export type ShopVisitReportUploadStatus =
 
 export interface ShopVisitReport {
   id: string;
-  isDummy?: boolean;
   engineSerialNumber: string;
   engineId?: string | null;
   engineType?: string | null;

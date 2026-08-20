@@ -21,22 +21,10 @@ import { useMemo, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 
 import { MotionPopup } from "@/components/ui/motion-popup";
-import { useApp } from "@/app/(orbit)/context/AppContext";
 import { formatDateTime } from "@/lib/date-time";
-import {
-  reviewPresentationApprovalScenario,
-  usePresentationApprovalScenarios,
-  type PresentationApprovalTarget,
-} from "@/lib/presentation/ees-approval-scenario";
 import {
   getEesPdfUrl,
 } from "@/features/service-bulletins";
-import {
-  mapPresentationScenarioToAssignment,
-} from "@/features/my-assignment";
-import {
-  mapAssignmentToApprovalReviewItem,
-} from "../adapters/approvalRequestAdapter";
 import { useApprovalDetail } from "../hooks/useApprovalDetail";
 import { useApprovalRequests } from "../hooks/useApprovalRequests";
 import { rejectEes, reviewEes } from "../services/reviewApi";
@@ -153,10 +141,9 @@ export function SecondEngineerReviewPage({
   reviewerTarget = "SECOND_ENGINEER",
   initialEesId,
 }: {
-  reviewerTarget?: PresentationApprovalTarget;
+  reviewerTarget?: "SECOND_ENGINEER" | "MANAGER";
   initialEesId?: string;
 }) {
-  const { dataSourceMode } = useApp();
   const dataSourceReady = useSyncExternalStore(
     subscribeToHydration,
     getClientHydrationSnapshot,
@@ -166,27 +153,14 @@ export function SecondEngineerReviewPage({
   const [statusFilter, setStatusFilter] = useState<
     ApprovalRequestStatus | "ALL"
   >("ALL");
-  const scenarios = usePresentationApprovalScenarios();
   const apiQuery = useApprovalRequests(
     {
       page,
       limit: 20,
       ...(statusFilter === "ALL" ? {} : { status: statusFilter }),
     },
-    dataSourceReady && dataSourceMode === "backend",
+    dataSourceReady,
     reviewerTarget === "SECOND_ENGINEER" ? "history" : "inbox",
-  );
-  const presentationItems = useMemo(
-    () => scenarios
-      .filter(scenario => scenario.reviewerTarget === reviewerTarget)
-      .map(mapPresentationScenarioToAssignment)
-      .map(mapAssignmentToApprovalReviewItem)
-      .filter(
-        (item) =>
-          statusFilter === "ALL"
-          || item.reviewStatus === statusFilter,
-      ),
-    [reviewerTarget, scenarios, statusFilter],
   );
   const query = !dataSourceReady
     ? {
@@ -198,19 +172,6 @@ export function SecondEngineerReviewPage({
           totalPages: 1,
         },
         isLoading: true,
-        error: null,
-        retry: () => undefined,
-      }
-    : dataSourceMode === "dummy"
-    ? {
-        items: presentationItems,
-        pagination: {
-          page: 1,
-          limit: 20,
-          total: presentationItems.length,
-          totalPages: 1,
-        },
-        isLoading: false,
         error: null,
         retry: () => undefined,
       }
@@ -234,7 +195,7 @@ export function SecondEngineerReviewPage({
     ?? null;
   const detailQuery = useApprovalDetail(
     selectedListItem?.eesId,
-    dataSourceMode === "backend",
+    true,
   );
   const selected = useMemo<ApprovalReviewItem | null>(() => {
     if (!selectedListItem) return null;
@@ -310,15 +271,10 @@ export function SecondEngineerReviewPage({
   const pdfOperator = isCitilink ? "citilink" : "garuda";
   const hasPdf = Boolean(
     selected?.sourceSbId
-    && (
-      dataSourceMode === "backend"
-      || selected.hasGarudaPdf
-      || selected.hasCitilinkPdf
-    )
+    && (selected.hasGarudaPdf || selected.hasCitilinkPdf || selected.sourceSbId)
   );
   const isPdfContextLoading = Boolean(
-    dataSourceMode === "backend"
-    && detailQuery.isLoading
+    detailQuery.isLoading
     && !selected?.sourceSbId,
   );
   const references = selected?.references
@@ -359,10 +315,7 @@ export function SecondEngineerReviewPage({
     }
     setIsSubmitting(true);
     try {
-      if (dataSourceMode === "dummy") {
-        reviewPresentationApprovalScenario(selected.eesId, decision, comment);
-        await new Promise(resolve => setTimeout(resolve, 450));
-      } else if (decision === "REJECTED") {
+      if (decision === "REJECTED") {
         await rejectEes({
           eesId: selected.eesId,
           comment,
@@ -411,9 +364,7 @@ export function SecondEngineerReviewPage({
             <h1 className="text-xl font-bold text-foreground">{reviewerLabel} EES Review</h1>
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            {dataSourceMode === "dummy"
-              ? `Presentation assignments routed to the selected ${reviewerLabel}.`
-              : "Review EES documents from the live ORBIT API and submit an approval decision."}
+            Review EES documents from the live ORBIT API and submit an approval decision.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -696,11 +647,7 @@ export function SecondEngineerReviewPage({
                   </span>
                 </div>
                 <div className="p-4">
-                  {dataSourceMode === "dummy" ? (
-                    <p className="text-xs text-muted-foreground">
-                      Riwayat approval tidak tersedia pada presentation data.
-                    </p>
-                  ) : detailQuery.isLoading ? (
+                  {detailQuery.isLoading ? (
                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                       <Loader2 size={14} className="animate-spin text-blue-700" />
                       Memuat riwayat approval...

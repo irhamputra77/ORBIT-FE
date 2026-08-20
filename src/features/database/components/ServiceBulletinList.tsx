@@ -8,11 +8,13 @@ import {
   CheckCircle2,
   Database,
   FileSearch,
+  Loader2,
+  RefreshCw,
   UserRound,
 } from "lucide-react";
 import { useState } from "react";
 import { formatDateTime } from "@/lib/date-time";
-import { DUMMY_SERVICE_BULLETINS } from "../data/serviceBulletinDummyData";
+import { useServiceBulletins } from "@/features/service-bulletins";
 
 const PAGE_SIZE = 10;
 
@@ -41,7 +43,11 @@ export function ServiceBulletinList({
 }) {
   const [page, setPage] = useState(1);
   const normalizedQuery = query.trim().toLowerCase();
-  const filteredItems = DUMMY_SERVICE_BULLETINS.filter((item) => {
+  const serviceBulletins = useServiceBulletins(
+    { page: 1, limit: 100, search: query.trim() || undefined },
+    { fetchAll: true, enabled: true },
+  );
+  const filteredItems = serviceBulletins.items.filter((item) => {
     const matchesFleet = !fleet || item.aircraftType === fleet;
     const matchesQuery = !normalizedQuery || [
       item.bulletinNumber,
@@ -53,6 +59,20 @@ export function ServiceBulletinList({
   });
   const totalPages = Math.max(1, Math.ceil(filteredItems.length / PAGE_SIZE));
   const items = filteredItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  if (serviceBulletins.isLoading) {
+    return <div className="flex min-h-56 items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="animate-spin" size={18} />Loading Service Bulletins...</div>;
+  }
+
+  if (serviceBulletins.error) {
+    return (
+      <div className="flex min-h-56 flex-col items-center justify-center rounded-xl border border-red-200 bg-red-50 px-5 text-center text-red-700">
+        <p className="font-semibold">Service Bulletin tidak dapat dimuat</p>
+        <p className="mt-1 text-xs">{serviceBulletins.error}</p>
+        <button type="button" onClick={serviceBulletins.retry} className="mt-3 inline-flex items-center gap-1 rounded-lg border border-red-200 bg-white px-3 py-2 text-xs font-semibold"><RefreshCw size={12} />Coba lagi</button>
+      </div>
+    );
+  }
 
   if (!items.length) {
     return (
@@ -69,7 +89,7 @@ export function ServiceBulletinList({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="font-semibold text-foreground">Service Bulletin</h2>
-          <p className="text-xs text-muted-foreground">{filteredItems.length.toLocaleString("id-ID")} dokumen dummy tersedia</p>
+          <p className="text-xs text-muted-foreground">{filteredItems.length.toLocaleString("id-ID")} dokumen dari backend tersedia</p>
         </div>
         {fleet && (
           <span className="rounded-full border border-border bg-muted px-3 py-1 text-[11px] text-muted-foreground">
