@@ -4,6 +4,11 @@ import {
   directUploadError,
 } from "@/lib/http/directUploadClient";
 import {
+  isCreatedAfter,
+  normalizeUploadFilename,
+  waitForUploadRecord,
+} from "@/lib/http/uploadReconciliation";
+import {
   mapShopVisitReport,
   mapShopVisitReportList,
 } from "../adapters/shopVisitReportAdapter";
@@ -74,6 +79,37 @@ export async function uploadShopVisitReport(
   } catch (error) {
     throw directUploadError(error, "SVR gagal diunggah.");
   }
+}
+
+export async function reconcileShopVisitReportUpload(
+  fileNames: string[],
+  knownIds: Set<string>,
+  startedAt: number,
+  signal?: AbortSignal,
+) {
+  const expectedFilenames = new Set(fileNames.map(normalizeUploadFilename));
+
+  return waitForUploadRecord<ShopVisitReport>({
+    signal,
+    load: async (requestSignal) => {
+      const result = await getShopVisitReports(
+        { page: 1, limit: 100 },
+        requestSignal,
+      );
+      const unseen = result.data.filter(
+        (report) =>
+          !knownIds.has(report.id)
+          && isCreatedAfter(report.createdAt, startedAt),
+      );
+      const exact = unseen.filter((report) => {
+        const original = normalizeUploadFilename(report.originalFileName);
+        const stored = normalizeUploadFilename(report.storedFileName);
+        return expectedFilenames.has(original) || expectedFilenames.has(stored);
+      });
+      return exact.length > 0 ? exact : unseen.length === 1 ? unseen : [];
+    },
+    matches: () => true,
+  });
 }
 
 export async function getShopVisitReports(

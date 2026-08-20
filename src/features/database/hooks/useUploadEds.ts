@@ -2,7 +2,13 @@
 
 import axios from "axios";
 import { useCallback, useRef, useState } from "react";
-import { uploadEdsPdf, validateEdsPdf } from "../services/edsApi";
+import { isTransientDirectUploadError } from "@/lib/http/directUploadClient";
+import {
+  getEdsList,
+  reconcileEdsUpload,
+  uploadEdsPdf,
+  validateEdsPdf,
+} from "../services/edsApi";
 import type { ShopVisitReportUploadStatus } from "../types";
 import type { UploadEdsResult } from "../edsTypes";
 
@@ -71,6 +77,19 @@ export function useUploadEds() {
     controllerRef.current = controller;
     setStatus("uploading");
 
+    let knownIds = new Set<string>();
+    try {
+      const snapshot = await getEdsList(
+        { page: 1, limit: 100 },
+        controller.signal,
+      );
+      knownIds = new Set(snapshot.data.map((item) => item.id));
+    } catch (error) {
+      if (controller.signal.aborted || axios.isCancel(error)) return null;
+      // A snapshot improves reconciliation accuracy, but must not block upload.
+    }
+    const startedAt = Date.now();
+
     try {
       const uploadResult = await uploadEdsPdf(
         file,
@@ -90,9 +109,56 @@ export function useUploadEds() {
     } catch (error) {
       if (requestToken !== requestTokenRef.current) return null;
       if (axios.isCancel(error)) return null;
+
+      if (isTransientDirectUploadError(error)) {
+        setStatus("processing");
+        setProgress(100);
+        setMessage(
+          "Gateway berhenti menunggu respons, tetapi backend mungkin masih memproses EDS. ORBIT sedang memverifikasi hasil upload...",
+        );
+
+        try {
+          const recovered = await reconcileEdsUpload(
+            file.name,
+            knownIds,
+            startedAt,
+            controller.signal,
+          );
+          if (requestToken !== requestTokenRef.current) return null;
+          if (recovered) {
+            const recoveredResult: UploadEdsResult = {
+              message:
+                "EDS berhasil tersimpan. Respons upload sempat terputus di gateway, lalu data ditemukan melalui verifikasi database.",
+              data: recovered as unknown as Record<string, unknown>,
+            };
+            setStatus("success");
+            setMessage(recoveredResult.message);
+            setResult(recoveredResult);
+            return recoveredResult;
+          }
+        } catch (reconciliationError) {
+          if (
+            controller.signal.aborted
+            || axios.isCancel(reconciliationError)
+          ) {
+            return null;
+          }
+        }
+
+        setStatus("server-error");
+        setMessage(
+          "Gateway timeout dan dokumen belum ditemukan setelah verifikasi. Periksa status proses EDS di backend sebelum mengunggah ulang agar tidak membuat data ganda.",
+        );
+        return null;
+      }
+
       const responseStatus = axios.isAxiosError(error)
         ? error.response?.status
-        : undefined;
+        : typeof error === "object"
+          && error !== null
+          && "status" in error
+          ? (error as { status?: number }).status
+          : undefined;
       setStatus(
         responseStatus === 401
           ? "unauthorized"

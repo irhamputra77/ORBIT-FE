@@ -3,6 +3,11 @@ import {
   directUploadClient,
   directUploadError,
 } from "@/lib/http/directUploadClient";
+import {
+  isCreatedAfter,
+  normalizeUploadFilename,
+  waitForUploadRecord,
+} from "@/lib/http/uploadReconciliation";
 import type {
   EdsDetail,
   EdsListItem,
@@ -140,4 +145,35 @@ export async function uploadEdsPdf(
   } catch (error) {
     throw directUploadError(error, "PDF EDS gagal diunggah.");
   }
+}
+
+export async function reconcileEdsUpload(
+  fileName: string,
+  knownIds: Set<string>,
+  startedAt: number,
+  signal?: AbortSignal,
+) {
+  const expectedFilename = normalizeUploadFilename(fileName);
+
+  return waitForUploadRecord<EdsListItem>({
+    signal,
+    load: async (requestSignal) => {
+      const result = await getEdsList(
+        { page: 1, limit: 100 },
+        requestSignal,
+      );
+      const unseen = result.data.filter(
+        (item) =>
+          !knownIds.has(item.id)
+          && isCreatedAfter(item.createdAt, startedAt),
+      );
+      const exact = unseen.filter(
+        (item) =>
+          normalizeUploadFilename(item.originalFileName) === expectedFilename
+          || normalizeUploadFilename(item.storedFileName) === expectedFilename,
+      );
+      return exact.length > 0 ? exact : unseen.length === 1 ? unseen : [];
+    },
+    matches: () => true,
+  });
 }

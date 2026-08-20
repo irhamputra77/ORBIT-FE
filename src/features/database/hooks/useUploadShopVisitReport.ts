@@ -2,8 +2,11 @@
 
 import axios from "axios";
 import { useCallback, useRef, useState } from "react";
+import { isTransientDirectUploadError } from "@/lib/http/directUploadClient";
 import {
+  getShopVisitReports,
   MAX_SVR_PDF_FILES,
+  reconcileShopVisitReportUpload,
   uploadShopVisitReport,
   validateShopVisitReportPdf,
 } from "../services/shopVisitReportApi";
@@ -78,6 +81,19 @@ export function useUploadShopVisitReport() {
     controllerRef.current = controller;
     setStatus("uploading");
 
+    let knownIds = new Set<string>();
+    try {
+      const snapshot = await getShopVisitReports(
+        { page: 1, limit: 100 },
+        controller.signal,
+      );
+      knownIds = new Set(snapshot.data.map((report) => report.id));
+    } catch (error) {
+      if (controller.signal.aborted || axios.isCancel(error)) return null;
+      // A snapshot improves reconciliation accuracy, but must not block upload.
+    }
+    const startedAt = Date.now();
+
     try {
       const uploadResult = await uploadShopVisitReport(
         files,
@@ -97,9 +113,56 @@ export function useUploadShopVisitReport() {
     } catch (error) {
       if (requestToken !== requestTokenRef.current) return null;
       if (axios.isCancel(error)) return null;
+
+      if (isTransientDirectUploadError(error)) {
+        setStatus("processing");
+        setProgress(100);
+        setMessage(
+          "Gateway berhenti menunggu respons, tetapi backend mungkin masih memproses SVR. ORBIT sedang memverifikasi hasil upload...",
+        );
+
+        try {
+          const recovered = await reconcileShopVisitReportUpload(
+            files.map((file) => file.name),
+            knownIds,
+            startedAt,
+            controller.signal,
+          );
+          if (requestToken !== requestTokenRef.current) return null;
+          if (recovered) {
+            const recoveredResult: UploadShopVisitReportResult = {
+              message:
+                "SVR berhasil tersimpan. Respons upload sempat terputus di gateway, lalu data ditemukan melalui verifikasi database.",
+              data: recovered,
+            };
+            setStatus("success");
+            setMessage(recoveredResult.message);
+            setResult(recoveredResult);
+            return recoveredResult;
+          }
+        } catch (reconciliationError) {
+          if (
+            controller.signal.aborted
+            || axios.isCancel(reconciliationError)
+          ) {
+            return null;
+          }
+        }
+
+        setStatus("server-error");
+        setMessage(
+          "Gateway timeout dan dokumen belum ditemukan setelah verifikasi. Periksa status proses SVR di backend sebelum mengunggah ulang agar tidak membuat data ganda.",
+        );
+        return null;
+      }
+
       const responseStatus = axios.isAxiosError(error)
         ? error.response?.status
-        : undefined;
+        : typeof error === "object"
+          && error !== null
+          && "status" in error
+          ? (error as { status?: number }).status
+          : undefined;
       setStatus(
         responseStatus === 401
           ? "unauthorized"
