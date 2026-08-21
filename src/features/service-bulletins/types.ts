@@ -65,6 +65,7 @@ export interface ServiceBulletinReviewAction {
 }
 
 export interface EesApprovalState {
+  sourceSbId: string | null;
   status: string | null;
   currentStage: string | null;
   assignedRole: string | null;

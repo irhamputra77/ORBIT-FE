@@ -56,6 +56,15 @@ function relationStyle(type: RelationshipType) {
   return FILTERS.find((item) => item.type === type) ?? FILTERS[2];
 }
 
+function relationLabel(relation: ServiceBulletinRelationship) {
+  switch (relation.rawType?.toUpperCase()) {
+    case "CONCURRENT": return "Concurrent";
+    case "SUPERSEDES": return "Supersedes";
+    case "TERMINATES": return "Terminates";
+    default: return relationStyle(relation.type).label;
+  }
+}
+
 function relationSide(relation: ServiceBulletinRelationship) {
   if (relation.direction === "INCOMING") return "left" as const;
   return "right" as const;
@@ -99,7 +108,7 @@ function RelationshipNode({
             color: presentation.color,
           }}
         >
-          {presentation.label}
+          {relationLabel(relation)}
         </span>
       </div>
       <div className="mt-2 flex items-center gap-1.5">

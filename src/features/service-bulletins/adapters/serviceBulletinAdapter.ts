@@ -201,7 +201,12 @@ function mapRelationship(value: unknown): ServiceBulletinRelationship | null {
         value.sourceServiceBulletin,
         value.source,
       ]
-    : [value.toServiceBulletin, value.targetServiceBulletin, value.target];
+    : [
+        value.targetSb,
+        value.toServiceBulletin,
+        value.targetServiceBulletin,
+        value.target,
+      ];
   const target = [
     ...directionalTargets,
     value.serviceBulletin,
@@ -222,13 +227,13 @@ function mapRelationship(value: unknown): ServiceBulletinRelationship | null {
   const id = nullableString(
     target.id
     ?? value.relatedSbId
-    ?? value.targetSbId
+    ?? (direction === "INCOMING" ? value.sourceSbId : value.targetSbId)
     ?? value.sbId,
   );
   const bulletinNumber = String(
     target.sbNumber
     ?? target.bulletinNumber
-    ?? value.targetSbNumber
+    ?? (direction === "INCOMING" ? value.sourceSbNumber : value.targetSbNumber)
     ?? value.relatedSbNumber
     ?? "",
   );

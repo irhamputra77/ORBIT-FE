@@ -2096,7 +2096,7 @@ function Step2SelectCategory({
   const engine = sb ? sb.engineType : engMap[fleet] || "";
   const backendTemplate = normalizeManualUploadTemplate(sb?.eesTemplate) || undefined;
   const [selectedTemplate, setSelectedTemplate] = useState<ManualUploadTemplate | undefined>(
-    normalizeManualUploadTemplate(data.eesTemplate) || backendTemplate,
+    normalizeManualUploadTemplate(data.eesTemplate) || undefined,
   );
   const airline = selectedTemplate === "citilink"
     ? "Citilink"
@@ -2443,7 +2443,9 @@ function Step2SelectCategory({
         {isGEMode && <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-bold text-blue-600">GE Engine Mode</span>}
       </div>
       <p className="text-xs text-muted-foreground mb-4">
-        {isGEMode
+        {!selectedTemplate
+          ? "Choose the Garuda or Citilink template first. The EES form and preview will appear after a template is selected."
+          : isGEMode
           ? requiresManualEES
             ? `${assignedCategory} requires manual EES input. Complete the form below, then continue to Applicability Review. Step 4 will display the generated PDF.`
             : "Review the GE compliance category, operational impact, and generated EES information before continuing."
@@ -2602,7 +2604,22 @@ function Step2SelectCategory({
 
       {/* EES Draft Preview */}
       <div className="mb-5">
-        {requiresManualEES ? (
+        {!selectedTemplate ? (
+          <motion.div
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.24, ease: "easeOut" }}
+            className="flex min-h-40 flex-col items-center justify-center rounded-2xl border border-dashed border-blue-400/40 bg-blue-500/[0.035] px-6 py-8 text-center"
+          >
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-blue-700 text-white shadow-sm">
+              <FileText size={19} />
+            </div>
+            <h4 className="mt-3 text-sm font-bold text-foreground">Select an EES Template</h4>
+            <p className="mt-1 max-w-md text-[11px] leading-relaxed text-muted-foreground">
+              Select Garuda or Citilink in the Assigned EES Form section above to display the corresponding EES fields and preview.
+            </p>
+          </motion.div>
+        ) : requiresManualEES ? (
           <div className="space-y-3">
             <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/[0.06] px-4 py-3">
               <Edit3 size={16} className="mt-0.5 shrink-0 text-amber-500" />

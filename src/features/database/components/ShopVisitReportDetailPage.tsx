@@ -1,11 +1,14 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import {
   AlertCircle,
   ArrowLeft,
   CalendarDays,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Download,
   ExternalLink,
   FileClock,
@@ -151,8 +154,94 @@ function EmptyState({ children }: { children: React.ReactNode }) {
   );
 }
 
+const TECHNICAL_RECORD_PAGE_SIZE = 10;
+
+type TechnicalRecordTab =
+  | "compliance"
+  | "configuration"
+  | "llp"
+  | "ad"
+  | "accessories";
+
+function Pagination({
+  page,
+  total,
+  onPageChange,
+}: {
+  page: number;
+  total: number;
+  onPageChange: (page: number) => void;
+}) {
+  const totalPages = Math.max(
+    1,
+    Math.ceil(total / TECHNICAL_RECORD_PAGE_SIZE),
+  );
+  const safePage = Math.min(Math.max(page, 1), totalPages);
+  const firstRecord = total === 0
+    ? 0
+    : (safePage - 1) * TECHNICAL_RECORD_PAGE_SIZE + 1;
+  const lastRecord = Math.min(
+    safePage * TECHNICAL_RECORD_PAGE_SIZE,
+    total,
+  );
+
+  return (
+    <div className="mt-4 flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
+      <p className="text-xs text-muted-foreground">
+        {total === 0
+          ? "0 record"
+          : `${firstRecord}-${lastRecord} dari ${total} record`}
+      </p>
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => onPageChange(safePage - 1)}
+          disabled={safePage <= 1}
+          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-card text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+          aria-label="Halaman sebelumnya"
+        >
+          <ChevronLeft size={15} />
+        </button>
+        <span className="min-w-24 text-center text-xs font-semibold text-foreground">
+          Halaman {safePage} / {totalPages}
+        </span>
+        <button
+          type="button"
+          onClick={() => onPageChange(safePage + 1)}
+          disabled={safePage >= totalPages}
+          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-card text-foreground transition-colors hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+          aria-label="Halaman berikutnya"
+        >
+          <ChevronRight size={15} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function paginatedItems<T>(items: T[], page: number) {
+  const totalPages = Math.max(
+    1,
+    Math.ceil(items.length / TECHNICAL_RECORD_PAGE_SIZE),
+  );
+  const safePage = Math.min(Math.max(page, 1), totalPages);
+  const start = (safePage - 1) * TECHNICAL_RECORD_PAGE_SIZE;
+  return items.slice(start, start + TECHNICAL_RECORD_PAGE_SIZE);
+}
+
 export function ShopVisitReportDetailPage({ id }: { id: string }) {
   const detail = useShopVisitReportDetail(id);
+  const [activeTechnicalTab, setActiveTechnicalTab] =
+    useState<TechnicalRecordTab>("compliance");
+  const [technicalPages, setTechnicalPages] = useState<
+    Record<TechnicalRecordTab, number>
+  >({
+    compliance: 1,
+    configuration: 1,
+    llp: 1,
+    ad: 1,
+    accessories: 1,
+  });
 
   if (detail.isLoading) {
     return (
@@ -201,6 +290,55 @@ export function ShopVisitReportDetailPage({ id }: { id: string }) {
   const adStatus = report.adStatus ?? [];
   const accessories = report.accessoriesList ?? [];
   const complianceRecords = report.complianceRecords ?? [];
+  const activePage = technicalPages[activeTechnicalTab];
+  const paginatedSbStatus = paginatedItems(svrSbStatus, activePage);
+  const paginatedConfiguration = paginatedItems(configuration, activePage);
+  const paginatedLlpStatus = paginatedItems(llpStatus, activePage);
+  const paginatedAdStatus = paginatedItems(adStatus, activePage);
+  const paginatedAccessories = paginatedItems(accessories, activePage);
+  const technicalTabs: Array<{
+    key: TechnicalRecordTab;
+    label: string;
+    count: number;
+    icon: React.ElementType;
+  }> = [
+    {
+      key: "compliance",
+      label: "SB Compliance",
+      count: svrSbStatus.length,
+      icon: CheckCircle2,
+    },
+    {
+      key: "configuration",
+      label: "Configuration",
+      count: configuration.length,
+      icon: GitCompareArrows,
+    },
+    {
+      key: "llp",
+      label: "LLP Status",
+      count: llpStatus.length,
+      icon: Gauge,
+    },
+    {
+      key: "ad",
+      label: "AD Status",
+      count: adStatus.length,
+      icon: ShieldCheck,
+    },
+    {
+      key: "accessories",
+      label: "Accessories",
+      count: accessories.length,
+      icon: Package,
+    },
+  ];
+  const updateTechnicalPage = (page: number) => {
+    setTechnicalPages(current => ({
+      ...current,
+      [activeTechnicalTab]: page,
+    }));
+  };
   const hasPdf = Boolean(
     report.storedFileName
     && report.storedFileName.toUpperCase() !== "PENDING",
@@ -376,171 +514,251 @@ export function ShopVisitReportDetailPage({ id }: { id: string }) {
             )}
           </section>
 
-          <Section
-            icon={CheckCircle2}
-            title="Service Bulletin Execution & Compliance"
-            description="Normalized compliance relations used by engine applicability and implementation tracking."
-          >
-            {complianceRecords.length ? (
-              <div className={`grid gap-3 ${
-                complianceRecords.length > 1 ? "md:grid-cols-2" : "grid-cols-1"
-              }`}>
-                {complianceRecords.map((record, index) => {
-                  const content = (
-                    <div className="h-full rounded-xl border border-border bg-muted/25 p-4 transition-colors hover:bg-muted/50">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <p className="font-semibold text-foreground">
-                            {record.sb?.sbNumber || record.ad?.adNumber || `Compliance ${index + 1}`}
-                          </p>
-                          <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                            {record.sb?.title || record.ad?.title || "Description not provided"}
-                          </p>
-                        </div>
-                        <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${statusClass(record.status)}`}>
-                          {statusLabel(record.status)}
-                        </span>
-                      </div>
-                      <div className="mt-3 grid grid-cols-2 gap-3 border-t border-border pt-3 text-xs">
-                        <div>
-                          <p className="text-[10px] text-muted-foreground">Compliance Date</p>
-                          <p className="mt-1 font-medium">{formatDateTime(record.complianceDate)}</p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] text-muted-foreground">Source</p>
-                          <p className="mt-1 font-medium">SVR {report.id}</p>
-                        </div>
-                      </div>
-                      {record.remarks && (
-                        <p className="mt-3 text-xs leading-5 text-muted-foreground">{record.remarks}</p>
-                      )}
-                    </div>
-                  );
+          <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+            <div className="border-b border-border px-5 py-4">
+              <div className="flex items-center gap-2">
+                <Wrench size={18} className="text-blue-700" />
+                <h2 className="font-semibold text-foreground">SVR Technical Records</h2>
+              </div>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                Riwayat compliance, perubahan konfigurasi engine, LLP, AD, dan
+                accessories ditampilkan dalam satu panel.
+              </p>
+            </div>
 
-                  return record.sb?.id
-                    ? (
-                        <Link
-                          key={record.id || index}
-                          href={`/database/service-bulletins/${encodeURIComponent(record.sb.id)}`}
-                        >
-                          {content}
-                        </Link>
-                      )
-                    : <div key={record.id || index}>{content}</div>;
+            <div
+              className="overflow-x-auto border-b border-border bg-muted/20 px-3 pt-3"
+              role="tablist"
+              aria-label="SVR technical records"
+            >
+              <div className="flex min-w-max gap-1">
+                {technicalTabs.map(tab => {
+                  const TabIcon = tab.icon;
+                  const isActive = activeTechnicalTab === tab.key;
+                  return (
+                    <button
+                      key={tab.key}
+                      type="button"
+                      role="tab"
+                      aria-selected={isActive}
+                      onClick={() => setActiveTechnicalTab(tab.key)}
+                      className={`inline-flex items-center gap-2 rounded-t-xl border-b-2 px-4 py-3 text-xs font-semibold transition-colors ${
+                        isActive
+                          ? "border-blue-700 bg-card text-blue-700"
+                          : "border-transparent text-muted-foreground hover:bg-muted hover:text-foreground"
+                      }`}
+                    >
+                      <TabIcon size={15} />
+                      {tab.label}
+                      <span className={`rounded-full px-2 py-0.5 text-[10px] ${
+                        isActive
+                          ? "bg-blue-700 text-white"
+                          : "bg-muted text-muted-foreground"
+                      }`}>
+                        {tab.count}
+                      </span>
+                    </button>
+                  );
                 })}
               </div>
-            ) : (
-              <EmptyState>
-                Belum ada normalized compliance record yang menghubungkan SVR ini
-                dengan Service Bulletin atau Airworthiness Directive.
-              </EmptyState>
-            )}
+            </div>
 
-            <div className="mt-5">
-              <h3 className="mb-2 text-xs font-semibold text-foreground">SVR SB Status Rows</h3>
-              {svrSbStatus.length ? (
-                <DataTable
-                  headers={["SB Number", "Compliance Date", "Method", "Module", "Category", "Remarks"]}
-                  rows={svrSbStatus.map(item => [
-                    item.sbNumber || "—",
-                    formatDateTime(item.notificationDateOfCompliance),
-                    item.methodOfCompliance || "—",
-                    item.moduleApplicability || "—",
-                    item.catType || "—",
-                    item.remarks || "—",
-                  ])}
-                />
-              ) : (
-                <EmptyState>SB status rows tidak tersedia pada dokumen SVR ini.</EmptyState>
+            <div className="p-5" role="tabpanel">
+              {activeTechnicalTab === "compliance" && (
+                <div>
+                  {complianceRecords.length ? (
+                    <div className={`grid gap-3 ${
+                      complianceRecords.length > 1 ? "md:grid-cols-2" : "grid-cols-1"
+                    }`}>
+                      {complianceRecords.map((record, index) => {
+                        const content = (
+                          <div className="h-full rounded-xl border border-border bg-muted/25 p-4 transition-colors hover:bg-muted/50">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="font-semibold text-foreground">
+                                  {record.sb?.sbNumber || record.ad?.adNumber || `Compliance ${index + 1}`}
+                                </p>
+                                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                                  {record.sb?.title || record.ad?.title || "Description not provided"}
+                                </p>
+                              </div>
+                              <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${statusClass(record.status)}`}>
+                                {statusLabel(record.status)}
+                              </span>
+                            </div>
+                            <div className="mt-3 grid grid-cols-2 gap-3 border-t border-border pt-3 text-xs">
+                              <div>
+                                <p className="text-[10px] text-muted-foreground">Compliance Date</p>
+                                <p className="mt-1 font-medium">{formatDateTime(record.complianceDate)}</p>
+                              </div>
+                              <div>
+                                <p className="text-[10px] text-muted-foreground">Source</p>
+                                <p className="mt-1 font-medium">SVR {report.id}</p>
+                              </div>
+                            </div>
+                            {record.remarks && (
+                              <p className="mt-3 text-xs leading-5 text-muted-foreground">{record.remarks}</p>
+                            )}
+                          </div>
+                        );
+
+                        return record.sb?.id
+                          ? (
+                              <Link
+                                key={record.id || index}
+                                href={`/database/service-bulletins/${encodeURIComponent(record.sb.id)}`}
+                              >
+                                {content}
+                              </Link>
+                            )
+                          : <div key={record.id || index}>{content}</div>;
+                      })}
+                    </div>
+                  ) : (
+                    <EmptyState>
+                      Belum ada normalized compliance record yang menghubungkan
+                      SVR ini dengan Service Bulletin atau Airworthiness Directive.
+                    </EmptyState>
+                  )}
+
+                  <div className="mt-5">
+                    <h3 className="mb-2 text-xs font-semibold text-foreground">SVR SB Status Rows</h3>
+                    {svrSbStatus.length ? (
+                      <DataTable
+                        headers={["SB Number", "Compliance Date", "Method", "Module", "Category", "Remarks"]}
+                        rows={paginatedSbStatus.map(item => [
+                          item.sbNumber || "—",
+                          formatDateTime(item.notificationDateOfCompliance),
+                          item.methodOfCompliance || "—",
+                          item.moduleApplicability || "—",
+                          item.catType || "—",
+                          item.remarks || "—",
+                        ])}
+                      />
+                    ) : (
+                      <EmptyState>SB status rows tidak tersedia pada dokumen SVR ini.</EmptyState>
+                    )}
+                    <Pagination
+                      page={activePage}
+                      total={svrSbStatus.length}
+                      onPageChange={updateTechnicalPage}
+                    />
+                  </div>
+                </div>
+              )}
+
+              {activeTechnicalTab === "configuration" && (
+                <div>
+                  {configuration.length ? (
+                    <DataTable
+                      headers={["Module", "Part Name", "P/N", "Serial", "Action", "Qty", "TSN / CSN", "Work Accomplished"]}
+                      rows={paginatedConfiguration.map(item => [
+                        item.module || "—",
+                        item.partName || "—",
+                        item.partNumber || "—",
+                        item.serial || "—",
+                        <span
+                          key={`${item.id}-action`}
+                          className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${item.inOut?.toUpperCase() === "IN" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}
+                        >
+                          {item.inOut || "—"}
+                        </span>,
+                        item.qty ?? "—",
+                        [item.tsn, item.csn].filter(Boolean).join(" / ") || "—",
+                        item.workAccompl || "—",
+                      ])}
+                    />
+                  ) : (
+                    <EmptyState>Configuration report tidak tersedia.</EmptyState>
+                  )}
+                  <Pagination
+                    page={activePage}
+                    total={configuration.length}
+                    onPageChange={updateTechnicalPage}
+                  />
+                </div>
+              )}
+
+              {activeTechnicalTab === "llp" && (
+                <div>
+                  {llpStatus.length ? (
+                    <DataTable
+                      headers={["No.", "Description", "P/N", "Serial", "Total Hour", "Total Cycle", "Life Limit", "Remaining", "Remark"]}
+                      rows={paginatedLlpStatus.map(item => [
+                        item.no ?? "—",
+                        item.description || "—",
+                        item.partNumber || "—",
+                        item.serialNumber || "—",
+                        item.totalHour || "—",
+                        item.totalCycle || "—",
+                        text(item.lifeLimitCycles),
+                        text(item.remainingCycles),
+                        item.remark || "—",
+                      ])}
+                    />
+                  ) : (
+                    <EmptyState>LLP status tidak tersedia.</EmptyState>
+                  )}
+                  <Pagination
+                    page={activePage}
+                    total={llpStatus.length}
+                    onPageChange={updateTechnicalPage}
+                  />
+                </div>
+              )}
+
+              {activeTechnicalTab === "ad" && (
+                <div>
+                  {adStatus.length ? (
+                    <DataTable
+                      headers={["AD Number", "Compliance Date", "Description", "Method", "Reference SB", "Recurrent Inspection", "Remarks"]}
+                      rows={paginatedAdStatus.map(item => [
+                        item.adNumber || "—",
+                        formatDateTime(item.notificationDateOfCompliance),
+                        item.description || "—",
+                        item.methodOfCompliance || "—",
+                        item.referenceSb || "—",
+                        item.recurrInsp || "—",
+                        item.remarks || "—",
+                      ])}
+                    />
+                  ) : (
+                    <EmptyState>Tidak ada AD status pada SVR ini.</EmptyState>
+                  )}
+                  <Pagination
+                    page={activePage}
+                    total={adStatus.length}
+                    onPageChange={updateTechnicalPage}
+                  />
+                </div>
+              )}
+
+              {activeTechnicalTab === "accessories" && (
+                <div>
+                  {accessories.length ? (
+                    <DataTable
+                      headers={["Description", "P/N", "Serial", "Position", "Status"]}
+                      rows={paginatedAccessories.map(item => [
+                        item.description || "—",
+                        item.partNumber || "—",
+                        item.serialNumber || "—",
+                        item.position || "—",
+                        item.status || "—",
+                      ])}
+                    />
+                  ) : (
+                    <EmptyState>Accessories list tidak tersedia.</EmptyState>
+                  )}
+                  <Pagination
+                    page={activePage}
+                    total={accessories.length}
+                    onPageChange={updateTechnicalPage}
+                  />
+                </div>
               )}
             </div>
-          </Section>
+          </section>
 
-          <Section
-            icon={GitCompareArrows}
-            title="Engine Configuration Changes"
-            description="Installed and removed configuration items that may change future SB applicability."
-          >
-            {configuration.length ? (
-              <DataTable
-                headers={["Module", "Part Name", "P/N", "Serial", "Action", "Qty", "TSN / CSN", "Work Accomplished"]}
-                rows={configuration.map(item => [
-                  item.module || "—",
-                  item.partName || "—",
-                  item.partNumber || "—",
-                  item.serial || "—",
-                  <span
-                    key={`${item.id}-action`}
-                    className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${item.inOut?.toUpperCase() === "IN" ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-amber-200 bg-amber-50 text-amber-700"}`}
-                  >
-                    {item.inOut || "—"}
-                  </span>,
-                  item.qty ?? "—",
-                  [item.tsn, item.csn].filter(Boolean).join(" / ") || "—",
-                  item.workAccompl || "—",
-                ])}
-              />
-            ) : (
-              <EmptyState>Configuration report tidak tersedia.</EmptyState>
-            )}
-          </Section>
-
-          <Section icon={Gauge} title="Life Limited Part Status">
-            {llpStatus.length ? (
-              <DataTable
-                headers={["No.", "Description", "P/N", "Serial", "Total Hour", "Total Cycle", "Life Limit", "Remaining", "Remark"]}
-                rows={llpStatus.map(item => [
-                  item.no ?? "—",
-                  item.description || "—",
-                  item.partNumber || "—",
-                  item.serialNumber || "—",
-                  item.totalHour || "—",
-                  item.totalCycle || "—",
-                  text(item.lifeLimitCycles),
-                  text(item.remainingCycles),
-                  item.remark || "—",
-                ])}
-              />
-            ) : (
-              <EmptyState>LLP status tidak tersedia.</EmptyState>
-            )}
-          </Section>
-
-          <Section icon={ShieldCheck} title="Airworthiness Directive Status">
-            {adStatus.length ? (
-              <DataTable
-                headers={["AD Number", "Compliance Date", "Description", "Method", "Reference SB", "Recurrent Inspection", "Remarks"]}
-                rows={adStatus.map(item => [
-                  item.adNumber || "—",
-                  formatDateTime(item.notificationDateOfCompliance),
-                  item.description || "—",
-                  item.methodOfCompliance || "—",
-                  item.referenceSb || "—",
-                  item.recurrInsp || "—",
-                  item.remarks || "—",
-                ])}
-              />
-            ) : (
-              <EmptyState>Tidak ada AD status pada SVR ini.</EmptyState>
-            )}
-          </Section>
-
-          <Section icon={Package} title="Accessories List">
-            {accessories.length ? (
-              <DataTable
-                headers={["Description", "P/N", "Serial", "Position", "Status"]}
-                rows={accessories.map(item => [
-                  item.description || "—",
-                  item.partNumber || "—",
-                  item.serialNumber || "—",
-                  item.position || "—",
-                  item.status || "—",
-                ])}
-              />
-            ) : (
-              <EmptyState>Accessories list tidak tersedia.</EmptyState>
-            )}
-          </Section>
         </main>
 
         <aside className="space-y-6">

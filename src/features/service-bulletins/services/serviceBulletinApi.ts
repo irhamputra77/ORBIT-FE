@@ -304,6 +304,18 @@ export async function getEesApprovalState(
   const payload = isRecord(response.data) ? response.data : {};
   const data = isRecord(payload.data) ? payload.data : payload;
   const approval = isRecord(data.approval) ? data.approval : data;
+  const eesDocument = isRecord(approval.eesDocument)
+    ? approval.eesDocument
+    : isRecord(data.eesDocument)
+      ? data.eesDocument
+      : isRecord(data.ees)
+        ? data.ees
+        : {};
+  const sourceSb = isRecord(eesDocument.sourceSb)
+    ? eesDocument.sourceSb
+    : isRecord(data.serviceBulletin)
+      ? data.serviceBulletin
+      : {};
   const assignedTo = isRecord(approval.assignedTo)
     ? approval.assignedTo
     : isRecord(approval.currentAssignee)
@@ -316,6 +328,12 @@ export async function getEesApprovalState(
       : [];
 
   return {
+    sourceSbId: nullableString(
+      approval.sourceSbId
+      ?? eesDocument.sourceSbId
+      ?? data.sourceSbId
+      ?? sourceSb.id,
+    ),
     status: nullableString(approval.status ?? approval.reviewStatus),
     currentStage: nullableString(
       approval.currentStage

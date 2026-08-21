@@ -22,6 +22,7 @@ import {
   type ServiceBulletinRelationship,
   type ServiceBulletinReviewAction,
   type ServiceBulletinViewModel,
+  useServiceBulletinRelations,
 } from "@/features/service-bulletins";
 import { useServiceBulletinDetail } from "../hooks/useServiceBulletinDetail";
 import { SBRelationshipDiagram } from "./SBRelationshipDiagram";
@@ -58,6 +59,28 @@ function relationPresentation(type: ServiceBulletinRelationship["type"]) {
     case "SUPERSEDED": return { label: "Superseded", className: "border-violet-200 bg-violet-50 text-violet-700" };
     case "RECURRENT": return { label: "Recurrent", className: "border-blue-200 bg-blue-50 text-blue-700" };
     case "TERMINATED": return { label: "Terminated", className: "border-red-200 bg-red-50 text-red-700" };
+  }
+}
+
+function relationLabel(relation: ServiceBulletinRelationship) {
+  switch (relation.rawType?.toUpperCase()) {
+    case "CONCURRENT": return "Concurrent";
+    case "SUPERSEDES": return "Supersedes";
+    case "TERMINATES": return "Terminates";
+    default: return relationPresentation(relation.type).label;
+  }
+}
+
+function relationSyncClass(syncStatus: string | null | undefined) {
+  switch (syncStatus?.toUpperCase()) {
+    case "REGISTERED":
+    case "SYNCED":
+      return "border-emerald-300 bg-emerald-600 text-white";
+    case "UNREGISTERED":
+    case "UNSYNCED":
+      return "border-amber-300 bg-amber-500 text-slate-950";
+    default:
+      return "border-slate-300 bg-slate-700 text-white";
   }
 }
 
@@ -114,6 +137,7 @@ function ReviewTimeline({
 
 export function ServiceBulletinDetailPage({ id }: { id: string }) {
   const detail = useServiceBulletinDetail(id);
+  const relationQuery = useServiceBulletinRelations(id);
 
   if (detail.isLoading) {
     return (
@@ -136,6 +160,11 @@ export function ServiceBulletinDetailPage({ id }: { id: string }) {
   }
 
   const sb = detail.serviceBulletin;
+  const relationships = relationQuery.data?.relationships ?? [];
+  const relationshipServiceBulletin: ServiceBulletinViewModel = {
+    ...sb,
+    relationships,
+  };
   const approved = sb.eesReviewStatus?.toUpperCase() === "APPROVED";
   const hasEes = Boolean(sb.generatedEesId || sb.eesNumber);
   const isCitilink = /A320|ATR/i.test(sb.aircraftType || "");
@@ -204,23 +233,53 @@ export function ServiceBulletinDetailPage({ id }: { id: string }) {
 
           <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex items-center gap-2"><GitBranch className="text-violet-600" size={18} /><h2 className="font-semibold text-foreground">SB Relationships</h2></div>
-              {sb.relationships.length > 0 && (
-                <SBRelationshipDiagram serviceBulletin={sb} />
+              <div>
+                <div className="flex items-center gap-2"><GitBranch className="text-violet-600" size={18} /><h2 className="font-semibold text-foreground">SB Relationships</h2></div>
+                {relationQuery.data && (
+                  <p className="mt-1 text-[10px] text-muted-foreground">
+                    {relationQuery.data.outgoingRelations.length} outgoing · {relationQuery.data.incomingRelations.length} incoming
+                  </p>
+                )}
+              </div>
+              {relationships.length > 0 && (
+                <SBRelationshipDiagram serviceBulletin={relationshipServiceBulletin} />
               )}
             </div>
-            {sb.relationships.length ? (
+            {relationQuery.isLoading ? (
+              <div className="flex items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-muted/30 p-6 text-sm text-muted-foreground">
+                <Loader2 className="animate-spin" size={16} /> Memuat relasi Service Bulletin...
+              </div>
+            ) : relationQuery.error ? (
+              <div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                <div className="flex items-start gap-2"><AlertCircle className="mt-0.5 shrink-0" size={16} /><p>{relationQuery.error}</p></div>
+                <button type="button" onClick={relationQuery.retry} className="mt-3 inline-flex items-center gap-2 rounded-lg border border-red-300 bg-white px-3 py-2 text-xs font-semibold"><RefreshCw size={13} /> Muat ulang relasi</button>
+              </div>
+            ) : relationships.length ? (
               <div className="space-y-3">
-                {sb.relationships.map((relation, index) => {
+                {relationships.map((relation, index) => {
                   const presentation = relationPresentation(relation.type);
                   const content = (
                     <div className="flex items-start justify-between gap-4 rounded-xl border border-border bg-muted/30 p-4 transition-colors hover:bg-muted">
-                      <div>
+                      <div className="min-w-0">
                         <div className="mb-1 flex flex-wrap items-center gap-2">
                           <p className="font-semibold text-foreground">{relation.bulletinNumber}</p>
-                          <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${presentation.className}`}>{presentation.label}</span>
+                          <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${presentation.className}`}>{relationLabel(relation)}</span>
+                          <span className="rounded-full border border-slate-300 bg-slate-800 px-2 py-0.5 text-[10px] font-semibold text-white">
+                            {relation.direction === "INCOMING" ? "Incoming" : "Outgoing"}
+                          </span>
+                          {relation.syncStatus && (
+                            <span className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${relationSyncClass(relation.syncStatus)}`}>
+                              {formatStatus(relation.syncStatus)}
+                            </span>
+                          )}
+                          {relation.conditionType && relation.conditionType !== "NONE" && (
+                            <span className="rounded-full border border-cyan-300 bg-cyan-600 px-2 py-0.5 text-[10px] font-semibold text-white">
+                              {relation.conditionType}
+                            </span>
+                          )}
                         </div>
                         <p className="text-xs text-muted-foreground">{relation.title || "Judul SB terkait tidak tersedia"}</p>
+                        {relation.remarks && <p className="mt-2 text-xs leading-5 text-foreground">{relation.remarks}</p>}
                       </div>
                       {relation.status && <span className="text-[10px] text-muted-foreground">{relation.status}</span>}
                     </div>
@@ -232,9 +291,7 @@ export function ServiceBulletinDetailPage({ id }: { id: string }) {
               </div>
             ) : (
               <div className="rounded-xl border border-dashed border-border bg-muted/30 p-5 text-sm text-muted-foreground">
-                {sb.relationshipStatus && sb.relationshipStatus !== "NONE"
-                  ? `Status relasi ${formatStatus(sb.relationshipStatus)} tersedia, tetapi API belum mengirim ID dan informasi SB yang berelasi.`
-                  : "Tidak ada informasi relasi Superseded, Recurrent, atau Terminated dari API."}
+                Endpoint relasi tidak mengirim relasi outgoing maupun incoming untuk Service Bulletin ini.
               </div>
             )}
           </section>

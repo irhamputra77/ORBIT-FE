@@ -113,17 +113,49 @@ function latestActivityDate(
   }, document.createdAt);
 }
 
+type EesPdfOperator = "garuda" | "citilink";
+
+function normalizeEesTemplate(value: unknown): EesPdfOperator | null {
+  if (typeof value === "object" && value !== null) {
+    const template = value as Record<string, unknown>;
+    return normalizeEesTemplate(
+      template.value
+      ?? template.code
+      ?? template.type
+      ?? template.name
+      ?? template.template,
+    );
+  }
+
+  if (typeof value !== "string" || !value.trim()) return null;
+
+  const normalized = value.trim().toUpperCase().replace(/[\s_-]+/g, "");
+  if (normalized === "QG" || normalized.includes("CITILINK")) return "citilink";
+  if (normalized === "GA" || normalized.includes("GARUDA")) return "garuda";
+  return null;
+}
+
 /**
- * Backend has no persisted "selected template" field. Its approval workflow
- * determines the output from the source-SB operator: QG is Citilink, every
- * other operator is Garuda. PDF storage paths are only a fallback for older
- * responses that omit the nested operator object.
+ * The EES detail endpoint is the source of truth for the selected PDF
+ * template. Operator and stored-file paths remain compatibility fallbacks for
+ * older EES records that do not expose a template field yet.
  */
 function resolveEesOperator(
   document: ServiceBulletinEesDocument,
   serviceBulletin: ServiceBulletinViewModel,
-): "garuda" | "citilink" {
+): EesPdfOperator {
   const rawDocument = document as unknown as Record<string, unknown>;
+  const explicitTemplate = [
+    document.eesTemplate,
+    rawDocument.selectedEesTemplate,
+    rawDocument.templateType,
+    rawDocument.selectedTemplate,
+    rawDocument.outputTemplate,
+    rawDocument.template,
+  ].map(normalizeEesTemplate).find((template) => template !== null);
+
+  if (explicitTemplate) return explicitTemplate;
+
   const sourceSb = rawDocument.sourceSb;
   const sourceSbOperator = typeof sourceSb === "object" && sourceSb !== null
     ? (sourceSb as { operator?: { code?: unknown } | null }).operator
@@ -300,6 +332,7 @@ export function EesDetailPage({
   const [serviceBulletin, setServiceBulletin] = useState<ServiceBulletinViewModel | null>(null);
   const [approval, setApproval] = useState<EesApprovalState | null>(null);
   const [applicability, setApplicability] = useState<ServiceBulletinApplicability | null>(null);
+  const [resolvedSourceSbId, setResolvedSourceSbId] = useState(sourceSbId);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<PageError | null>(null);
   const [requestVersion, setRequestVersion] = useState(0);
@@ -314,20 +347,33 @@ export function EesDetailPage({
       setError(null);
       setApproval(null);
       setApplicability(null);
-
-      if (!sourceSbId) {
-        setError({
-          kind: "not-found",
-          message: "Source Service Bulletin ID tidak tersedia.",
-        });
-        setIsLoading(false);
-        return;
-      }
+      setResolvedSourceSbId(sourceSbId);
 
       try {
+        let targetSourceSbId = sourceSbId;
+        let notificationApproval: EesApprovalState | null = null;
+
+        // Notification links may only contain the EES ID. Resolve the missing
+        // source SB from the specific approval response before loading EES.
+        if (!targetSourceSbId) {
+          notificationApproval = await getEesApprovalState(
+            eesId,
+            controller.signal,
+          );
+          targetSourceSbId = notificationApproval.sourceSbId || "";
+        }
+
+        if (!targetSourceSbId) {
+          setError({
+            kind: "not-found",
+            message: "Source Service Bulletin ID tidak ditemukan pada detail approval EES.",
+          });
+          return;
+        }
+
         const [eesResult, sbResult] = await Promise.all([
-          getServiceBulletinEes(sourceSbId, controller.signal),
-          getServiceBulletin(sourceSbId, controller.signal),
+          getServiceBulletinEes(targetSourceSbId, controller.signal),
+          getServiceBulletin(targetSourceSbId, controller.signal),
         ]);
 
         if (eesResult.status !== "available") {
@@ -336,12 +382,15 @@ export function EesDetailPage({
         }
 
         if (controller.signal.aborted) return;
+        setResolvedSourceSbId(targetSourceSbId);
         setDocument(eesResult.data);
         setServiceBulletin(sbResult);
 
         const [approvalResult, applicabilityResult] = await Promise.allSettled([
-          getEesApprovalState(eesResult.data.id, controller.signal),
-          getServiceBulletinApplicability(sourceSbId, controller.signal),
+          notificationApproval && eesResult.data.id === eesId
+            ? Promise.resolve(notificationApproval)
+            : getEesApprovalState(eesResult.data.id, controller.signal),
+          getServiceBulletinApplicability(targetSourceSbId, controller.signal),
         ]);
         if (controller.signal.aborted) return;
         if (approvalResult.status === "fulfilled") setApproval(approvalResult.value);
@@ -368,6 +417,7 @@ export function EesDetailPage({
     void load();
     return () => controller.abort();
   }, [
+    eesId,
     requestVersion,
     sourceSbId,
   ]);
@@ -411,9 +461,10 @@ export function EesDetailPage({
   const approvalLabel = approvalStatusLabel(document.reviewStatus, approval);
   const lastUpdated = latestActivityDate(document, reviewHistory);
   const aircraftType = document.aircraftType || serviceBulletin.aircraftType;
+  const detailSourceSbId = resolvedSourceSbId || sourceSbId;
   const eesOperator = resolveEesOperator(document, serviceBulletin);
-  const viewUrl = getEesPdfUrl(sourceSbId, eesOperator, "view");
-  const downloadUrl = getEesPdfUrl(sourceSbId, eesOperator, "download");
+  const viewUrl = getEesPdfUrl(detailSourceSbId, eesOperator, "view");
+  const downloadUrl = getEesPdfUrl(detailSourceSbId, eesOperator, "download");
   const pdfProcessing = [
     serviceBulletin.status,
     serviceBulletin.draftStatus,
@@ -449,7 +500,7 @@ export function EesDetailPage({
               </span>
             </div>
             <p className="mt-2 text-sm font-semibold text-foreground">
-              {serviceBulletin.bulletinNumber || sourceSbId}
+              {serviceBulletin.bulletinNumber || detailSourceSbId}
               {serviceBulletin.revision ? ` · Rev ${serviceBulletin.revision}` : ""}
             </p>
             <p className="mt-1 max-w-4xl text-xs leading-5 text-muted-foreground">
@@ -460,7 +511,7 @@ export function EesDetailPage({
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() => router.push(`/database/service-bulletins/${encodeURIComponent(sourceSbId)}`)}
+              onClick={() => router.push(`/database/service-bulletins/${encodeURIComponent(detailSourceSbId)}`)}
               className="inline-flex h-9 items-center gap-2 rounded-lg border border-border bg-card px-3 text-xs font-semibold text-foreground hover:bg-accent"
             >
               View Source SB <ExternalLink size={12} />
@@ -516,7 +567,7 @@ export function EesDetailPage({
             </div>
             <button
               type="button"
-              onClick={() => router.push(`/ees/${encodeURIComponent(document.id)}/revision?sourceSbId=${encodeURIComponent(sourceSbId)}`)}
+              onClick={() => router.push(`/ees/${encodeURIComponent(document.id)}/revision?sourceSbId=${encodeURIComponent(detailSourceSbId)}`)}
               className="shrink-0 rounded-xl bg-amber-800 px-4 py-2.5 text-xs font-bold text-white hover:bg-amber-900"
             >
               Revise EES
@@ -706,7 +757,7 @@ export function EesDetailPage({
             <div className="grid gap-3 lg:grid-cols-3">
               <button
                 type="button"
-                onClick={() => router.push(`/database/service-bulletins/${encodeURIComponent(sourceSbId)}`)}
+                onClick={() => router.push(`/database/service-bulletins/${encodeURIComponent(detailSourceSbId)}`)}
                 className="group flex min-h-28 items-start justify-between gap-4 rounded-xl border border-border bg-muted/30 p-4 text-left transition-colors hover:bg-muted"
               >
                 <div className="min-w-0">
@@ -799,7 +850,7 @@ export function EesDetailPage({
               </a>
               <button
                 type="button"
-                onClick={() => router.push(`/database/service-bulletins/${encodeURIComponent(sourceSbId)}`)}
+                onClick={() => router.push(`/database/service-bulletins/${encodeURIComponent(detailSourceSbId)}`)}
                 className="flex items-center justify-between gap-3 rounded-xl border border-border bg-muted/30 p-4 text-left hover:bg-muted"
               >
                 <div className="min-w-0">
