@@ -1,5 +1,5 @@
 export type DatabaseTab = "search" | "upload";
-export type DatabaseSource = "ENGINE" | "IQ03" | "SVR" | "EDS" | "SB";
+export type DatabaseSource = "IQ03" | "SVR" | "EDS" | "SB";
 
 export type ShopVisitReportUploadStatus =
   | "idle"
@@ -134,11 +134,21 @@ export interface ShopVisitAdStatus {
 
 export interface ShopVisitAccessoryItem {
   id?: string;
+  svrId?: string | null;
+  edsId?: string | null;
+  iq03Id?: string | null;
+  engineSerialNumber?: string | null;
+  no?: string | number | null;
   description?: string | null;
-  partNumber?: string | null;
-  serialNumber?: string | null;
-  position?: string | null;
-  status?: string | null;
+  receivedPn?: string | null;
+  receivedSn?: string | null;
+  receivedTsn?: string | null;
+  receivedTso?: string | null;
+  installedPn?: string | null;
+  installedSn?: string | null;
+  installedTsn?: string | null;
+  installedTso?: string | null;
+  maintenancePerformed?: string | null;
   [key: string]: unknown;
 }
 

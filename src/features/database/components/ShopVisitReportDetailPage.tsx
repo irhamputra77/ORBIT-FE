@@ -113,13 +113,15 @@ function MetadataItem({
 function DataTable({
   headers,
   rows,
+  minWidthClass = "min-w-[760px]",
 }: {
   headers: string[];
   rows: React.ReactNode[][];
+  minWidthClass?: string;
 }) {
   return (
     <div className="overflow-x-auto rounded-xl border border-border">
-      <table className="w-full min-w-[760px] text-left text-xs">
+      <table className={`w-full ${minWidthClass} text-left text-xs`}>
         <thead className="bg-muted text-[10px] uppercase tracking-wider text-muted-foreground">
           <tr>
             {headers.map(header => (
@@ -737,13 +739,34 @@ export function ShopVisitReportDetailPage({ id }: { id: string }) {
                 <div>
                   {accessories.length ? (
                     <DataTable
-                      headers={["Description", "P/N", "Serial", "Position", "Status"]}
+                      minWidthClass="min-w-[1680px]"
+                      headers={[
+                        "No",
+                        "Engine Serial Number",
+                        "Description",
+                        "Received P/N",
+                        "Received S/N",
+                        "Received TSN",
+                        "Received TSO",
+                        "Installed P/N",
+                        "Installed S/N",
+                        "Installed TSN",
+                        "Installed TSO",
+                        "Maintenance Performed",
+                      ]}
                       rows={paginatedAccessories.map(item => [
+                        item.no ?? "—",
+                        item.engineSerialNumber || report.engineSerialNumber || "—",
                         item.description || "—",
-                        item.partNumber || "—",
-                        item.serialNumber || "—",
-                        item.position || "—",
-                        item.status || "—",
+                        item.receivedPn || "—",
+                        item.receivedSn || "—",
+                        item.receivedTsn || "—",
+                        item.receivedTso || "—",
+                        item.installedPn || "—",
+                        item.installedSn || "—",
+                        item.installedTsn || "—",
+                        item.installedTso || "—",
+                        item.maintenancePerformed || "—",
                       ])}
                     />
                   ) : (

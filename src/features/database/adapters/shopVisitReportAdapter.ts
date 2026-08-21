@@ -170,18 +170,41 @@ function mapComplianceRecord(value: unknown): ShopVisitComplianceRecord | null {
 function mapAccessoryItem(value: unknown): ShopVisitAccessoryItem | null {
   if (!isRecord(value)) return null;
   return {
-    ...value,
     id: nullableText(value.id) ?? undefined,
+    svrId: nullableText(value.svrId),
+    edsId: nullableText(value.edsId),
+    iq03Id: nullableText(value.iq03Id),
+    engineSerialNumber:
+      nullableText(value.engineSerialNumber)
+      ?? nullableText(value.esn),
+    no: typeof value.no === "number" ? value.no : nullableText(value.no),
     description:
       nullableText(value.description)
       ?? nullableText(value.partName)
       ?? nullableText(value.name),
-    partNumber: nullableText(value.partNumber),
-    serialNumber:
-      nullableText(value.serialNumber)
+    receivedPn:
+      nullableText(value.receivedPn)
+      ?? nullableText(value.receivedPartNumber),
+    receivedSn:
+      nullableText(value.receivedSn)
+      ?? nullableText(value.receivedSerialNumber),
+    receivedTsn: nullableText(value.receivedTsn),
+    receivedTso: nullableText(value.receivedTso),
+    installedPn:
+      nullableText(value.installedPn)
+      ?? nullableText(value.installedPartNumber)
+      ?? nullableText(value.partNumber),
+    installedSn:
+      nullableText(value.installedSn)
+      ?? nullableText(value.installedSerialNumber)
+      ?? nullableText(value.serialNumber)
       ?? nullableText(value.serial),
-    position: nullableText(value.position),
-    status: nullableText(value.status),
+    installedTsn: nullableText(value.installedTsn),
+    installedTso: nullableText(value.installedTso),
+    maintenancePerformed:
+      nullableText(value.maintenancePerformed)
+      ?? nullableText(value.workAccompl)
+      ?? nullableText(value.status),
   };
 }
 

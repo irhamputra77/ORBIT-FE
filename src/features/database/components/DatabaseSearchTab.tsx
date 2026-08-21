@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
   AlertCircle,
   CalendarDays,
@@ -14,7 +14,6 @@ import {
   Loader2,
   Search,
 } from "lucide-react";
-import { useApp } from "@/app/(orbit)/context/AppContext";
 import { formatDateTime } from "@/lib/date-time";
 import { useShopVisitReports } from "../hooks/useShopVisitReports";
 import {
@@ -23,7 +22,6 @@ import {
 } from "../services/shopVisitReportApi";
 import type { DatabaseSource, ShopVisitReport } from "../types";
 import { ServiceBulletinList } from "./ServiceBulletinList";
-import { EngineDatabaseList } from "./EngineDatabaseList";
 import { EdsDatabaseList } from "./EdsDatabaseList";
 
 function SVRList({
@@ -180,18 +178,13 @@ function SVRList({
 export function DatabaseSearchTab() {
   const [fleet, setFleet] = useState("");
   const [query, setQuery] = useState("");
-  const [source, setSource] = useState<DatabaseSource>("ENGINE");
-  const [result, setResult] = useState<DatabaseSource | null>("ENGINE");
+  const [source, setSource] = useState<DatabaseSource>("SB");
+  const [result, setResult] = useState<DatabaseSource | null>("SB");
   const svr = useShopVisitReports();
 
   function changeSource(nextSource: DatabaseSource) {
     setSource(nextSource);
     svr.reset();
-    if (nextSource === "ENGINE") {
-      setQuery("");
-      setResult("ENGINE");
-      return;
-    }
     if (nextSource === "EDS") {
       setQuery("");
       setResult("EDS");
@@ -226,14 +219,13 @@ export function DatabaseSearchTab() {
         <div>
           <div className="mb-2 text-xs font-semibold text-foreground">Source</div>
           <div className="flex gap-2">
-            {(["ENGINE", "SVR", "EDS", "SB"] as const).map((item) => <button key={item} type="button" onClick={() => changeSource(item)} className={`flex-1 rounded-xl border px-2 py-2.5 text-[11px] font-semibold transition-colors ${source === item ? "border-blue-600 bg-blue-600 text-white" : "border-border bg-muted text-muted-foreground"}`}>{item}</button>)}
+            {(["SVR", "EDS", "SB"] as const).map((item) => <button key={item} type="button" onClick={() => changeSource(item)} className={`flex-1 rounded-xl border px-2 py-2.5 text-[11px] font-semibold transition-colors ${source === item ? "border-blue-600 bg-blue-600 text-white" : "border-border bg-muted text-muted-foreground"}`}>{item}</button>)}
           </div>
         </div>
       </div>
       <button type="button" disabled={source === "SVR" && svr.isLoading} onClick={handleSearch} className="mb-6 flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-700 to-cyan-500 px-5 py-2.5 text-sm font-semibold text-white disabled:cursor-wait disabled:opacity-60">
         {source === "SVR" && svr.isLoading ? <Loader2 className="animate-spin" size={14} /> : <Search size={14} />} Search
       </button>
-      {result === "ENGINE" && <EngineDatabaseList />}
       {result === "SVR" && svr.error && <div className="flex items-start gap-2 rounded-xl border border-red-500/20 bg-red-500/5 p-4 text-sm text-red-600"><AlertCircle className="mt-0.5 shrink-0" size={16} />{svr.error}</div>}
       {result === "SVR" && svr.hasSearched && !svr.isLoading && !svr.error && svr.items.length === 0 && <div className="rounded-xl border border-border bg-muted p-5 text-sm text-muted-foreground">Tidak ada data SVR yang cocok dengan ESN tersebut.</div>}
       {result === "SVR" && !svr.isLoading && svr.items.length > 0 && (
