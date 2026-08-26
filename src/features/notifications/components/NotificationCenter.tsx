@@ -51,15 +51,16 @@ function relativeTime(value: string) {
 
 function notificationDestination(
   link: string | null,
-  userRole: "engineer" | "manager",
+  userRole: "engineer" | "manager" | "admin",
 ) {
   if (!link || !link.startsWith("/") || link.startsWith("//")) return null;
 
   const approvalMatch = link.match(/^\/approvals\/([^/?#]+)/);
   if (approvalMatch) {
-    const target = userRole === "manager"
-      ? "/manager-ees-review"
-      : "/second-engineer-review";
+    if (userRole === "admin") {
+      return `/ees/${encodeURIComponent(approvalMatch[1])}`;
+    }
+    const target = userRole === "manager" ? "/manager-ees-review" : "/second-engineer-review";
     return `${target}?eesId=${encodeURIComponent(approvalMatch[1])}`;
   }
 

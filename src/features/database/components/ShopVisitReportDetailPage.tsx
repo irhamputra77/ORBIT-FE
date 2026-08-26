@@ -404,15 +404,15 @@ export function ShopVisitReportDetailPage({ id }: { id: string }) {
                 Shop Visit Report
               </span>
               <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold ${report.engine?.active === false ? "border-slate-200 bg-slate-50 text-slate-600" : "border-emerald-200 bg-emerald-50 text-emerald-700"}`}>
-                Engine {report.engine?.active === false ? "Inactive" : "Active"}
+                Unit {report.engine?.active === false ? "Inactive" : "Active"}
               </span>
             </div>
             <h1 className="text-2xl font-bold text-foreground">
-              Engine ESN {report.engineSerialNumber}
+              APU / Engine Serial {report.engineSerialNumber}
             </h1>
             <p className="mt-2 max-w-4xl text-sm leading-6 text-muted-foreground">
-              Evidence of shop-visit work, engine configuration changes, and SB/AD
-              compliance used to update engine applicability records.
+              Evidence of shop-visit work, APU/engine configuration changes, and
+              SB/AD compliance recorded for this unit.
             </p>
           </div>
           {hasPdf && (
@@ -466,8 +466,8 @@ export function ShopVisitReportDetailPage({ id }: { id: string }) {
             <p className="mt-1 text-sm leading-6 text-cyan-900/75">
               This SVR identifies work recorded for ESN {report.engineSerialNumber}.
               A COMPLIED relation means the linked SB has implementation evidence for
-              this engine. Configuration IN/OUT rows can be used to reassess later SB
-              applicability when an installed part or engine configuration changes.
+              this APU/engine. Configuration IN/OUT rows can be used to reassess later
+              SB applicability when an installed part or unit configuration changes.
             </p>
             {referencedFleets.length > 0 && (
               <p className="mt-2 text-xs font-medium text-cyan-800">
@@ -523,7 +523,7 @@ export function ShopVisitReportDetailPage({ id }: { id: string }) {
                 <h2 className="font-semibold text-foreground">SVR Technical Records</h2>
               </div>
               <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                Riwayat compliance, perubahan konfigurasi engine, LLP, AD, dan
+                Riwayat compliance, perubahan konfigurasi APU/engine, LLP, AD, dan
                 accessories ditampilkan dalam satu panel.
               </p>
             </div>
@@ -785,15 +785,15 @@ export function ShopVisitReportDetailPage({ id }: { id: string }) {
         </main>
 
         <aside className="space-y-6">
-          <Section icon={Plane} title="Engine Identity">
+          <Section icon={Plane} title="APU / Engine Identity">
             <dl>
-              <MetadataItem label="Engine Serial Number" value={report.engineSerialNumber} />
-              <MetadataItem label="Engine ID" value={report.engineId || report.engine?.id} />
-              <MetadataItem label="Engine Type / Model" value={report.engineType || report.engine?.model} />
+              <MetadataItem label="Serial Number / ESN" value={report.engineSerialNumber} />
+              <MetadataItem label="Unit ID" value={report.engineId || report.engine?.id} />
+              <MetadataItem label="APU / Engine Type / Model" value={report.engineType || report.engine?.model} />
               <MetadataItem label="MSN" value={report.engine?.msn} />
               <MetadataItem label="Position" value={report.engine?.position} />
               <MetadataItem label="Aircraft ID" value={report.engine?.aircraftId} />
-              <MetadataItem label="Engine Status" value={report.engine?.active === false ? "Inactive" : "Active"} />
+              <MetadataItem label="Unit Status" value={report.engine?.active === false ? "Inactive" : "Active"} />
             </dl>
           </Section>
 

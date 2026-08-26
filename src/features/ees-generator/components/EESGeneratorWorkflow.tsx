@@ -143,6 +143,87 @@ const engMap: Record<string, string> = {
 
 type ManualUploadTemplate = "garuda" | "citilink";
 
+type WorkflowValidationError = {
+  message: string;
+  fieldId?: string;
+};
+
+function scrollToWorkflowField(fieldId?: string) {
+  if (!fieldId || typeof window === "undefined") return;
+
+  window.requestAnimationFrame(() => {
+    const field = document.getElementById(fieldId);
+    if (!field) return;
+
+    field.scrollIntoView({ behavior: "smooth", block: "center" });
+    const focusable = field.matches("input, select, textarea, button")
+      ? field
+      : field.querySelector<HTMLElement>("input, select, textarea, button");
+    window.setTimeout(() => focusable?.focus({ preventScroll: true }), 350);
+  });
+}
+
+function inferWorkflowErrorFieldId(message: string) {
+  const normalized = message.toLowerCase();
+  const fieldMappings: Array<[string[], string]> = [
+    [["ees number", "eesnumber", "ees_number"], "ees-field-eesNumber"],
+    [["due at", "dueat", "due_at"], "ees-field-dueAt"],
+    [["warranty"], "ees-field-warranty"],
+    [["applicable", "applicability"], "ees-field-applicable"],
+    [["repetitive", "evaluation rep", "rep value"], "ees-field-rep"],
+    [["task type", "tasktype", "task_type"], "ees-field-taskType"],
+    [["reason of evaluation", "reasonofevaluation"], "ees-field-reasonOfEvaluation"],
+    [["evaluation result", "evaluationresult"], "ees-field-evaluationResult"],
+    [["engineering action", "engineeringaction"], "ees-field-engineeringAction"],
+    [["further implementation", "furtherimplementation"], "ees-field-furtherImplementation"],
+    [["management approval", "managementapproval"], "ees-field-managementApproval"],
+    [["assigned", "approver", "manager", "second engineer"], "ees-approval-assignee"],
+    [["signature"], "ees-field-creator-signature"],
+  ];
+
+  return fieldMappings.find(([needles]) => (
+    needles.some(needle => normalized.includes(needle))
+  ))?.[1];
+}
+
+function StickyValidationAlert({
+  error,
+  onDismiss,
+}: {
+  error: WorkflowValidationError | null;
+  onDismiss: () => void;
+}) {
+  if (!error) return null;
+
+  return (
+    <div
+      role="alert"
+      aria-live="assertive"
+      className="sticky top-2 z-50 mx-3 mb-3 flex items-start gap-2 rounded-xl border border-red-500/45 bg-red-50/95 px-3 py-2.5 text-red-700 shadow-lg backdrop-blur-md dark:bg-red-950/95 dark:text-red-200"
+    >
+      <AlertCircle size={15} className="mt-0.5 shrink-0" />
+      <p className="min-w-0 flex-1 text-[11px] font-semibold leading-relaxed">{error.message}</p>
+      {error.fieldId && (
+        <button
+          type="button"
+          onClick={() => scrollToWorkflowField(error.fieldId)}
+          className="shrink-0 rounded-md border border-red-500/30 px-2 py-1 text-[10px] font-bold hover:bg-red-500/10"
+        >
+          View field
+        </button>
+      )}
+      <button
+        type="button"
+        aria-label="Dismiss validation error"
+        onClick={onDismiss}
+        className="shrink-0 rounded-md p-1 hover:bg-red-500/10"
+      >
+        <X size={12} />
+      </button>
+    </div>
+  );
+}
+
 type DBServiceBulletin = {
   backendId?: string;
   id: string;
@@ -895,7 +976,10 @@ function Step1SelectSB({
   const [summarized, setSummarized] = useState(!!saved?.summarized);
   const [showManualModal, setShowManualModal] = useState(false);
   const [showCancelUploadConfirmation, setShowCancelUploadConfirmation] = useState(false);
-  const [showUnsyncedModal, setShowUnsyncedModal] = useState(false);
+  const [eesNumber, setEesNumber] = useState(
+    String(saved?.eesNumber || saved?.tdr || saved?.selectedSB?.eesNumber || ""),
+  );
+  const [validationError, setValidationError] = useState<WorkflowValidationError | null>(null);
   const [uploadFleetType, setUploadFleetType] = useState("");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadDragging, setUploadDragging] = useState(false);
@@ -944,18 +1028,20 @@ function Step1SelectSB({
     return matchesQuery && matchesFleet && matchesEngine && matchesSync;
   });
 
-  const isSelectedUnsynced = selectedSB?.syncStatus === "Unsynced";
-
   const loadSelectedSB = async (sb: DBServiceBulletin) => {
     const requestVersion = ++detailRequestVersion.current;
     setSelectedSB(sb);
     setSelectedEesDocument(null);
     setSummarized(false);
+    setEesNumber(sb.eesNumber?.trim() || "");
+    setValidationError(null);
     onSave({
       selectedSB: sb,
       generatedEesDocument: null,
       summarized: false,
-      isUnsyncedSB: sb.syncStatus === "Unsynced",
+      eesNumber: sb.eesNumber?.trim() || "",
+      tdr: sb.eesNumber?.trim() || "",
+      isUnsyncedSB: false,
     });
     if (!sb.backendId) {
       return;
@@ -972,11 +1058,14 @@ function Step1SelectSB({
       );
       if (detailRequestVersion.current !== requestVersion) return;
       setSelectedSB(detailedSB);
+      setEesNumber(current => current || detailedSB.eesNumber?.trim() || "");
       onSave({
         selectedSB: detailedSB,
         generatedEesDocument: null,
         summarized: false,
-        isUnsyncedSB: detailedSB.syncStatus === "Unsynced",
+        eesNumber: detailedSB.eesNumber?.trim() || "",
+        tdr: detailedSB.eesNumber?.trim() || "",
+        isUnsyncedSB: false,
       });
     } catch {
       if (detailRequestVersion.current !== requestVersion) return;
@@ -1007,7 +1096,15 @@ function Step1SelectSB({
       setTimeout(() => {
         setSummarizing(false);
         setSummarized(true);
-        onSave({ selectedSB, summarized: true });
+        onSave({
+          ...saved,
+          selectedSB,
+          generatedEesDocument: selectedEesDocument,
+          summarized: true,
+          eesNumber,
+          tdr: eesNumber,
+          isUnsyncedSB: false,
+        });
       }, 1800);
       return;
     }
@@ -1016,7 +1113,16 @@ function Step1SelectSB({
       const summary = await getServiceBulletinAiSummary(selectedSB.backendId);
       setSummarizing(false);
       setSummarized(true);
-      onSave({ selectedSB, summarized: true, aiSummary: summary });
+      onSave({
+        ...saved,
+        selectedSB,
+        generatedEesDocument: selectedEesDocument,
+        summarized: true,
+        aiSummary: summary,
+        eesNumber,
+        tdr: eesNumber,
+        isUnsyncedSB: false,
+      });
 
       if (summary.aiSummary === null) {
         toast.info(
@@ -1099,11 +1205,19 @@ function Step1SelectSB({
     setShowManualModal(false);
   };
 
-  const prepareEesAndContinue = async (
-    sb: DBServiceBulletin,
-    continueAsUnsyncedDraft = false,
-  ) => {
+  const prepareEesAndContinue = async (sb: DBServiceBulletin) => {
     if (preparingEes) return;
+
+    const normalizedEesNumber = eesNumber.trim();
+    if (!normalizedEesNumber) {
+      const error = {
+        message: "Enter the EES Number before continuing the EES workflow.",
+        fieldId: "workflow-ees-number",
+      };
+      setValidationError(error);
+      scrollToWorkflowField(error.fieldId);
+      return;
+    }
 
     if (!sb.backendId) {
       onNext({
@@ -1112,8 +1226,9 @@ function Step1SelectSB({
         aiSummary: saved?.aiSummary,
         summarized,
         fleet: sb.fleet,
-        tdr: continueAsUnsyncedDraft ? "" : sb.tdrRef,
-        isUnsyncedSB: continueAsUnsyncedDraft,
+        eesNumber: normalizedEesNumber,
+        tdr: normalizedEesNumber,
+        isUnsyncedSB: false,
       });
       return;
     }
@@ -1125,6 +1240,7 @@ function Step1SelectSB({
         eesResult = await getServiceBulletinEes(sb.backendId);
       } else {
         await generateServiceBulletinEes(sb.backendId, {
+          eesNumber: normalizedEesNumber,
           aircraftType: sb.fleet || undefined,
         });
         eesResult = await getServiceBulletinEes(sb.backendId);
@@ -1133,6 +1249,7 @@ function Step1SelectSB({
       // Recover when the SB metadata is stale and points to an EES that no longer exists.
       if (eesResult.status === "not-found") {
         await generateServiceBulletinEes(sb.backendId, {
+          eesNumber: normalizedEesNumber,
           aircraftType: sb.fleet || undefined,
         });
         eesResult = await getServiceBulletinEes(sb.backendId);
@@ -1152,7 +1269,8 @@ function Step1SelectSB({
         aiSummary: saved?.aiSummary,
         summarized,
         fleet: selectedWithEes.fleet,
-        tdr: eesResult.data.eesNumber || selectedWithEes.tdrRef,
+        eesNumber: eesResult.data.eesNumber || normalizedEesNumber,
+        tdr: eesResult.data.eesNumber || normalizedEesNumber,
         // A generated backend EES is no longer a local-only draft, even when
         // the source SB was initially uploaded with an Unsynced marker.
         isUnsyncedSB: false,
@@ -1170,12 +1288,16 @@ function Step1SelectSB({
 
       onNext(nextData);
     } catch (caughtError) {
-      toast.error(
-        getEesUpdateErrorMessage(
-          caughtError,
-          "EES tidak dapat disiapkan. Silakan coba Continue kembali.",
-        ),
+      const message = getEesUpdateErrorMessage(
+        caughtError,
+        "EES tidak dapat disiapkan. Silakan coba Continue kembali.",
       );
+      const inferredFieldId = inferWorkflowErrorFieldId(message);
+      const fieldId = inferredFieldId === "ees-field-eesNumber"
+        ? "workflow-ees-number"
+        : inferredFieldId;
+      setValidationError({ message, fieldId });
+      scrollToWorkflowField(fieldId);
     } finally {
       setPreparingEes(false);
     }
@@ -1183,10 +1305,16 @@ function Step1SelectSB({
 
   const handleContinue = () => {
     if (!selectedSB || detailLoadingId || preparingEes) return;
-    if (selectedSB.syncStatus === "Unsynced") {
-      setShowUnsyncedModal(true);
+    if (!eesNumber.trim()) {
+      const error = {
+        message: "EES Number is required for both manual and automatic EES input.",
+        fieldId: "workflow-ees-number",
+      };
+      setValidationError(error);
+      scrollToWorkflowField(error.fieldId);
       return;
     }
+    setValidationError(null);
     void prepareEesAndContinue(selectedSB);
   };
 
@@ -1199,37 +1327,6 @@ function Step1SelectSB({
 
   return (
     <div className="flex flex-col h-full overflow-hidden">
-      {/* Unsynced SB — Continue Warning Modal */}
-      <MotionPopup
-        open={showUnsyncedModal}
-        onOpenChange={setShowUnsyncedModal}
-        title="Unsynced SB Warning"
-        description="Continue with an unsynced Service Bulletin and save the EES as a draft."
-        className="max-w-sm p-6"
-      >
-            <div className="w-12 h-12 rounded-2xl flex items-center justify-center mx-auto mb-4" style={{ background: "#F59E0B15" }}>
-              <AlertTriangle size={24} style={{ color: "#F59E0B" }} />
-            </div>
-            <h3 className="text-foreground text-center mb-1 text-sm font-bold">Unsynced SB Warning</h3>
-            <p className="text-xs text-muted-foreground text-center mb-5 leading-relaxed">
-              This SB was generated from an AI-processed upload and has not been synchronized to an operator record. You can continue the EES review, but the TDR field will remain empty and the result must stay as a draft until synchronization is complete.
-            </p>
-            <div className="flex items-center gap-3">
-              <button onClick={() => setShowUnsyncedModal(false)} className="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium text-muted-foreground hover:bg-accent" style={{ border: "1px solid var(--border)" }}>
-                Cancel
-              </button>
-              <button
-                onClick={() => {
-                  setShowUnsyncedModal(false);
-                  if (selectedSB) void prepareEesAndContinue(selectedSB, true);
-                }}
-                className="flex-1 px-4 py-2.5 rounded-xl text-sm font-semibold text-white"
-                style={{ background: "linear-gradient(135deg, #F59E0B, #D97706)" }}>
-                Continue as Draft
-              </button>
-            </div>
-      </MotionPopup>
-
       {/* Upload Service Bulletin */}
       <MotionPopup
         open={showManualModal}
@@ -1263,12 +1360,6 @@ function Step1SelectSB({
               </button>
             </div>
             <div className="overflow-y-auto p-5 space-y-4 flex-1">
-              <div className="flex items-start gap-2.5 px-3 py-2.5 rounded-xl" style={{ background: "#0EA5E90A", border: "1px solid #0EA5E935" }}>
-                <Info size={14} style={{ color: "#0EA5E9" }} className="shrink-0 mt-0.5" />
-                <p className="text-[11px] text-muted-foreground leading-relaxed">
-                  Upload the original SB PDF. The backend will validate the document and extract its metadata without requiring an EES template during upload.
-                </p>
-              </div>
               <div>
                 <label htmlFor="upload-sb-fleet-type" className="block text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">
                   Fleet / Aircraft Type <span className="text-red-500">*</span>
@@ -1458,6 +1549,10 @@ function Step1SelectSB({
 
       {/* ── SB List (right panel content for step 1) ─────────────── */}
       <div className="flex flex-col h-full overflow-hidden">
+        <StickyValidationAlert
+          error={validationError}
+          onDismiss={() => setValidationError(null)}
+        />
         {/* User-controlled filters run after processed EES records are excluded. */}
         <motion.div
           initial={{ opacity: 0, y: -8 }}
@@ -1622,12 +1717,48 @@ function Step1SelectSB({
           )}
         </div>
 
-        {selectedSB && !isSelectedUnsynced && (
+        {selectedSB && (
           <div className="shrink-0 mx-3 mb-2 flex items-center gap-1.5 px-2 py-1.5 rounded-lg" style={{ background: "#0EA5E908", border: "1px solid #0EA5E920" }}>
             <Info size={9} style={{ color: "#0EA5E9" }} />
             <span className="text-[9px]" style={{ color: "#0EA5E9" }}>Relationships shown for traceability only.</span>
           </div>
         )}
+
+        <div
+          id="workflow-ees-number"
+          className={`mx-3 mb-2 shrink-0 rounded-xl border px-3 py-2.5 transition-colors ${validationError?.fieldId === "workflow-ees-number"
+            ? "border-red-500 bg-red-500/[0.05] ring-2 ring-red-500/15"
+            : "border-border bg-card"}`}
+        >
+          <label htmlFor="workflow-ees-number-input" className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+            EES Number <span className="text-red-500">*</span>
+          </label>
+          <input
+            id="workflow-ees-number-input"
+            value={eesNumber}
+            disabled={!selectedSB || preparingEes}
+            onChange={(event) => {
+              const nextValue = event.target.value;
+              setEesNumber(nextValue);
+              if (nextValue.trim()) setValidationError(null);
+              onSave({
+                ...saved,
+                selectedSB,
+                generatedEesDocument: selectedEesDocument,
+                summarized,
+                eesNumber: nextValue,
+                tdr: nextValue,
+                isUnsyncedSB: false,
+              });
+            }}
+            placeholder={selectedSB ? "Enter EES number before continuing" : "Select a Service Bulletin first"}
+            aria-invalid={validationError?.fieldId === "workflow-ees-number"}
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground outline-none transition-colors placeholder:font-normal placeholder:text-muted-foreground focus:border-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
+          />
+          <p className="mt-1 text-[9px] leading-relaxed text-muted-foreground">
+            Required before generating or opening an EES, for both manual and automatic workflows.
+          </p>
+        </div>
 
         <WorkflowActionBar>
           <div className="flex w-full items-center justify-between gap-3">
@@ -1637,7 +1768,7 @@ function Step1SelectSB({
                 style={{ border: "1px solid var(--border)" }}>
                 <Upload size={11} /> Upload New SB
               </button>
-              <button onClick={handleSummarize} disabled={!selectedSB || !!detailLoadingId || preparingEes || summarizing || summarized || isSelectedUnsynced}
+              <button onClick={handleSummarize} disabled={!selectedSB || !!detailLoadingId || preparingEes || summarizing || summarized}
                 className="flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-[11px] font-medium text-white disabled:opacity-40"
                 style={{ background: "linear-gradient(135deg, #0242DB, #00C2FF)" }}>
                 {summarizing ? <Loader2 size={11} className="animate-spin" /> : <Sparkles size={11} />}
@@ -1646,15 +1777,13 @@ function Step1SelectSB({
             </div>
             <motion.button whileHover={nextButtonHover} whileTap={nextButtonTap} disabled={!selectedSB || !!detailLoadingId || preparingEes} onClick={handleContinue}
               className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40"
-              style={{ background: isSelectedUnsynced ? "linear-gradient(135deg, #F59E0B, #D97706)" : "linear-gradient(135deg, #0E1B93, #0242DB, #00C2FF)", boxShadow: selectedSB ? "0 4px 16px rgba(0,194,255,0.3)" : "none" }}>
+              style={{ background: "linear-gradient(135deg, #0E1B93, #0242DB, #00C2FF)", boxShadow: selectedSB ? "0 4px 16px rgba(0,194,255,0.3)" : "none" }}>
               {(detailLoadingId || preparingEes) && <Loader2 size={13} className="animate-spin" />}
               {detailLoadingId
                 ? "Loading SB..."
                 : preparingEes
                   ? "Preparing EES..."
-                  : isSelectedUnsynced
-                    ? "Continue as Draft"
-                    : "Continue to Category Review"} <ChevronRight size={14} />
+                  : "Continue to Category Review"} <ChevronRight size={14} />
             </motion.button>
           </div>
         </WorkflowActionBar>
@@ -2091,7 +2220,6 @@ function Step2SelectCategory({
 }) {
   const sb: DBServiceBulletin | null = data.selectedSB || null;
   const fleet = data.fleet || sb?.fleet || "";
-  const isUnsyncedSB: boolean = !!data.isUnsyncedSB;
 
   const engine = sb ? sb.engineType : engMap[fleet] || "";
   const backendTemplate = normalizeManualUploadTemplate(sb?.eesTemplate) || undefined;
@@ -2104,7 +2232,7 @@ function Step2SelectCategory({
       ? "Garuda Indonesia"
       : getAirline(fleet);
   const fleetTpl = getFleetTemplate(fleet, selectedTemplate);
-  const eesNumber = isUnsyncedSB ? "" : (data.tdr || "—");
+  const eesNumber = String(data.eesNumber || data.tdr || sb?.eesNumber || "").trim();
 
   const categorySystem = getCategorySystem(sb);
   const isGEMode = categorySystem === "GE";
@@ -2151,6 +2279,7 @@ function Step2SelectCategory({
     data.manualDraft || {},
   );
   const [savingAiReview, setSavingAiReview] = useState(false);
+  const [validationError, setValidationError] = useState<WorkflowValidationError | null>(null);
   const [refreshedCitilinkContext, setRefreshedCitilinkContext] = useState<{
     backendId: string;
     aiSummary?: unknown;
@@ -2263,7 +2392,7 @@ function Step2SelectCategory({
     technicalCompliance: isGEMode ? (sb?.compliance || "") : undefined,
     programSupport: undefined,
     interchangeabilityCode: undefined,
-    isUnsyncedSB,
+    isUnsyncedSB: false,
     isManualCategory: requiresManualEES,
     aiSuggestedCategory: aiCategory,
     aiConfidence,
@@ -2309,6 +2438,7 @@ function Step2SelectCategory({
   };
 
   const handleManualDraftChange = (field: string, value: string | string[] | boolean) => {
+    setValidationError(null);
     if (field === "remarks" && typeof value === "string") {
       setRemarks(value);
       return;
@@ -2342,7 +2472,7 @@ function Step2SelectCategory({
 
   const isCitilinkTemplate = fleetTpl.template === "citilink";
   const missingCitilinkFields = isCitilinkTemplate
-    ? getMissingCitilinkRequiredFields(eesData, { allowEmptyEesNumber: isUnsyncedSB })
+    ? getMissingCitilinkRequiredFields(eesData)
     : [];
   const citilinkFieldTargets: Record<string, string> = {
     "EES No.": "eesNumber",
@@ -2367,11 +2497,13 @@ function Step2SelectCategory({
     });
   };
   const templateSelectionComplete = Boolean(selectedTemplate);
+  const eesNumberComplete = Boolean(String(eesData.eesNumber || "").trim());
   const citilinkManualFieldsComplete = !isCitilinkTemplate || (
     !missingCitilinkFields.includes("Engineering Action")
     && !missingCitilinkFields.includes("Further Implementation")
   );
   const manualFormComplete = templateSelectionComplete
+    && eesNumberComplete
     && citilinkManualFieldsComplete
     && (!requiresManualEES || (
       isCitilinkTemplate
@@ -2380,7 +2512,45 @@ function Step2SelectCategory({
   ));
 
   const handleContinueFromAiReview = async () => {
-    if (!manualFormComplete || savingAiReview) return;
+    if (savingAiReview) return;
+
+    if (!templateSelectionComplete) {
+      const error = {
+        message: "Select the Garuda or Citilink EES template before continuing.",
+        fieldId: "ees-template-garuda",
+      };
+      setValidationError(error);
+      scrollToWorkflowField(error.fieldId);
+      return;
+    }
+
+    if (!eesNumberComplete) {
+      const error = {
+        message: "EES Number is required before continuing this input process.",
+        fieldId: "ees-field-eesNumber",
+      };
+      setValidationError(error);
+      scrollToWorkflowField(error.fieldId);
+      return;
+    }
+
+    if (!manualFormComplete) {
+      const firstMissing = isCitilinkTemplate ? missingCitilinkFields[0] : "Warranty";
+      const fieldId = isCitilinkTemplate
+        ? `ees-field-${citilinkFieldTargets[firstMissing] || "eesNumber"}`
+        : "ees-field-warranty";
+      const error = {
+        message: isCitilinkTemplate
+          ? `Complete the required Citilink field: ${firstMissing}.`
+          : "Complete Warranty, Applicable, REP, and Task Type before continuing.",
+        fieldId,
+      };
+      setValidationError(error);
+      scrollToWorkflowField(error.fieldId);
+      return;
+    }
+
+    setValidationError(null);
 
     const nextData = {
       ...eesData,
@@ -2391,7 +2561,9 @@ function Step2SelectCategory({
     // Consequence is intentionally excluded because it is supplied by the backend.
     if (isCitilinkTemplate) {
       if (!sb?.backendId) {
-        toast.error("Service Bulletin ID is not available. Citilink review fields could not be saved.");
+        setValidationError({
+          message: "Service Bulletin ID is not available. Citilink review fields could not be saved.",
+        });
         return;
       }
 
@@ -2412,12 +2584,13 @@ function Step2SelectCategory({
         });
         toast.success("Citilink review fields saved to the EES draft.");
       } catch (caughtError) {
-        toast.error(
-          getEesUpdateErrorMessage(
-            caughtError,
-            "Citilink review fields could not be saved. Please try again.",
-          ),
+        const message = getEesUpdateErrorMessage(
+          caughtError,
+          "Citilink review fields could not be saved. Please try again.",
         );
+        const fieldId = inferWorkflowErrorFieldId(message);
+        setValidationError({ message, fieldId });
+        scrollToWorkflowField(fieldId);
       } finally {
         setSavingAiReview(false);
       }
@@ -2428,6 +2601,21 @@ function Step2SelectCategory({
   };
 
   const handleGenerate = () => {
+    if (!templateSelectionComplete || !eesNumberComplete) {
+      const error = !templateSelectionComplete
+        ? {
+            message: "Select an EES template before generating the automatic draft.",
+            fieldId: "ees-template-garuda",
+          }
+        : {
+            message: "EES Number is required before generating the automatic draft.",
+            fieldId: "ees-field-eesNumber",
+          };
+      setValidationError(error);
+      scrollToWorkflowField(error.fieldId);
+      return;
+    }
+    setValidationError(null);
     setGenerating(true);
     setTimeout(() => { setGenerating(false); setHasAIContent(true); }, 1200);
   };
@@ -2436,6 +2624,10 @@ function Step2SelectCategory({
 
   return (
     <div>
+      <StickyValidationAlert
+        error={validationError}
+        onDismiss={() => setValidationError(null)}
+      />
       {/* Header */}
       <div className="flex items-center flex-wrap gap-2 mb-1">
         <h3 className="text-foreground text-sm font-bold">{isGEMode ? "Review GE SB Compliance Classification" : "Review AI-Assigned EES Category"}</h3>
@@ -2457,8 +2649,8 @@ function Step2SelectCategory({
       {/* Selected SB summary */}
       {sb && (
         <div className="flex flex-wrap items-center gap-3 px-4 py-3 rounded-xl mb-4"
-          style={{ background: isUnsyncedSB ? "rgba(245,158,11,0.06)" : "var(--card)", border: isUnsyncedSB ? "1px solid rgba(245,158,11,0.25)" : "1px solid var(--border)" }}>
-          <FileText size={13} style={{ color: isUnsyncedSB ? "#F59E0B" : "#0242DB" }} />
+          style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
+          <FileText size={13} style={{ color: "#0242DB" }} />
           <span className="text-xs font-mono font-semibold text-foreground">{sb.id}</span>
           <span className="text-xs text-muted-foreground">·</span>
           <span className="text-xs text-muted-foreground">{fleet}</span>
@@ -2466,17 +2658,10 @@ function Step2SelectCategory({
           <span className="text-xs text-muted-foreground">{engine}</span>
           <div className="ml-auto">
             <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold"
-              style={{ background: isUnsyncedSB ? "#F59E0B18" : "#10B98115", color: isUnsyncedSB ? "#F59E0B" : "#10B981" }}>
-              {isUnsyncedSB ? "AI Generated — Unsynced" : (sb.syncStatus || "Synced")}
+              style={{ background: "#10B98115", color: "#10B981" }}>
+              {sb.syncStatus || "Available"}
             </span>
           </div>
-        </div>
-      )}
-
-      {isUnsyncedSB && (
-        <div className="flex items-start gap-2 px-3 py-2.5 rounded-xl mb-4" style={{ background: "rgba(245,158,11,0.05)", border: "1px solid rgba(245,158,11,0.25)" }}>
-          <AlertCircle size={12} style={{ color: "#F59E0B" }} className="shrink-0 mt-0.5" />
-          <p className="text-[11px] text-muted-foreground">This SB was generated from an AI-processed upload and is not linked to an operator record yet. The review may continue as a draft while the TDR remains empty.</p>
         </div>
       )}
 
@@ -2498,9 +2683,13 @@ function Step2SelectCategory({
             return (
               <button
                 key={template}
+                id={`ees-template-${template}`}
                 type="button"
                 aria-pressed={selected}
-                onClick={() => setSelectedTemplate(template)}
+                onClick={() => {
+                  setSelectedTemplate(template);
+                  setValidationError(null);
+                }}
                 className="flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-[10px] font-semibold transition-colors"
                 style={{
                   borderColor: selected ? color : "var(--border)",
@@ -2631,7 +2820,7 @@ function Step2SelectCategory({
               </div>
             </div>
             {!manualFormComplete && (
-              <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-500/25 bg-amber-500/[0.06] px-3 py-2 text-[10px] font-medium text-amber-600">
+              <div className="sticky top-2 z-30 flex flex-wrap items-center gap-2 rounded-xl border border-amber-500/35 bg-amber-50/95 px-3 py-2 text-[10px] font-medium text-amber-700 shadow-md backdrop-blur-md dark:bg-amber-950/95 dark:text-amber-200">
                 <AlertTriangle size={12} /> {!templateSelectionComplete
                   ? "Select the Garuda or Citilink EES template before continuing."
                   : isCitilinkTemplate
@@ -2700,7 +2889,7 @@ function Step2SelectCategory({
             </>
           )}
         </div>
-        {!hasAIContent && !isUnsyncedSB && (
+        {!hasAIContent && (
           <div className="flex items-center justify-center py-8 rounded-xl mb-3" style={{ background: "var(--muted)", border: "1px solid var(--border)" }}>
             <button onClick={handleGenerate} disabled={generating}
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40"
@@ -2763,7 +2952,7 @@ function Step2SelectCategory({
                 {docViewerOpen ? "Hide SB PDF" : "View SB PDF"}
               </button>
             )}
-            <motion.button whileHover={nextButtonHover} whileTap={nextButtonTap} onClick={() => { void handleContinueFromAiReview(); }} disabled={!manualFormComplete || savingAiReview}
+            <motion.button whileHover={nextButtonHover} whileTap={nextButtonTap} onClick={() => { void handleContinueFromAiReview(); }} disabled={savingAiReview}
               className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white transition-all hover:scale-[1.02] disabled:opacity-40"
               style={{ background: "linear-gradient(135deg, #0242DB, #00C2FF)", boxShadow: "0 4px 14px rgba(0,194,255,0.3)" }}>
               {savingAiReview ? (
@@ -3270,6 +3459,7 @@ function Step4PreviewOnlyReview({
   );
   const [draftSaved, setDraftSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [validationError, setValidationError] = useState<WorkflowValidationError | null>(null);
   const [approvalSubmitted, setApprovalSubmitted] = useState(
     Boolean(ees?.approvalSubmitted),
   );
@@ -3473,8 +3663,10 @@ function Step4PreviewOnlyReview({
     ees?.isUnsyncedSB && !hasBackendApprovalDocument,
   );
   const missingRequiredFields = eesOperator === "citilink"
-    ? getMissingCitilinkRequiredFields(currentEES, { allowEmptyEesNumber: isLocalOnlyDraft })
-    : [];
+    ? getMissingCitilinkRequiredFields(currentEES)
+    : String(currentEES.eesNumber || "").trim()
+      ? []
+      : ["EES No."];
   const requiredFilled = missingRequiredFields.length === 0;
   const manualSelectionsComplete = !requiresManualInput || eesOperator === "citilink" || !!(
     currentEES.warranty && currentEES.applicable && currentEES.rep && currentEES.taskType
@@ -3491,6 +3683,65 @@ function Step4PreviewOnlyReview({
   const generatedPdfUrl = backendId
     ? `${getEesPdfUrl(backendId, eesOperator, "view")}?v=${pdfVersion}`
     : "";
+
+  const showStep4ValidationError = (
+    message: string,
+    fieldId?: string,
+  ) => {
+    const resolvedFieldId = fieldId || inferWorkflowErrorFieldId(message);
+    const error = { message, fieldId: resolvedFieldId };
+    setValidationError(error);
+    scrollToWorkflowField(resolvedFieldId);
+  };
+
+  const firstStep4ContentError = (): WorkflowValidationError | null => {
+    if (missingRequiredFields.length > 0) {
+      const firstMissing = missingRequiredFields[0];
+      const citilinkTargets: Record<string, string> = {
+        "EES No.": "eesNumber",
+        "EES Issued Date": "eesIssuedDate",
+        "Unit Concern": "unitConcern",
+        "Bulletin No.": "bulletinNumber",
+        "Bull Type": "bulletinType",
+        Subject: "subject",
+        "Aircraft Type": "aircraftType",
+        "Reason of Evaluation": "reasonOfEvaluation",
+        "Evaluation Result": "evaluationResult",
+        "Engineering Action": "engineeringAction",
+        "Further Implementation": "furtherImplementation",
+        "Management Approval": "managementApproval",
+      };
+      return {
+        message: `Complete the required EES field: ${firstMissing}.`,
+        fieldId: `ees-field-${citilinkTargets[firstMissing] || "eesNumber"}`,
+      };
+    }
+    if (!manualSelectionsComplete) {
+      return {
+        message: "Complete Warranty, Applicable, REP, and Task Type before saving.",
+        fieldId: "ees-field-warranty",
+      };
+    }
+    if (!geClassificationComplete) {
+      return {
+        message: "GE Category and GE Impact are required before saving.",
+        fieldId: "ees-field-ge-category",
+      };
+    }
+    if (!priorityRemarksComplete) {
+      return {
+        message: "Remarks / Evaluation is required for this GE classification.",
+        fieldId: "ees-field-remarks",
+      };
+    }
+    if (!overrideReasonComplete) {
+      return {
+        message: "Enter a reason for overriding the AI classification.",
+        fieldId: "ees-field-ge-override-reason",
+      };
+    }
+    return null;
+  };
 
   const confirmManualEdit = () => {
     if (eesEditBlockReason) {
@@ -3513,6 +3764,7 @@ function Step4PreviewOnlyReview({
   };
 
   const handleManualFieldChange = (field: string, value: string | string[] | boolean) => {
+    setValidationError(null);
     setManualOverrides(previous => {
       if (typeof value === "boolean") {
         return { ...previous, [field]: value };
@@ -3569,6 +3821,12 @@ function Step4PreviewOnlyReview({
       isUnsyncedSB: isLocalOnlyDraft,
     };
 
+    const contentError = firstStep4ContentError();
+    if (contentError) {
+      showStep4ValidationError(contentError.message, contentError.fieldId);
+      return;
+    }
+
     if (isLocalOnlyDraft) {
       onSaveData(updatedEes, attachments);
       setDraftSaved(true);
@@ -3585,28 +3843,28 @@ function Step4PreviewOnlyReview({
       return;
     }
 
-    if (!contentCanSubmit) {
-      toast.error(
-        `Complete the required EES fields before saving: ${missingRequiredFields.join(", ") || "manual review fields"}.`,
+    if (!selectedApprover) {
+      showStep4ValidationError(
+        "Select a Second Engineer or Manager before saving the draft.",
+        "ees-approval-assignee",
       );
       return;
     }
 
-    if (!selectedApprover) {
-      toast.error("Select a Second Engineer or Manager before saving the draft.");
-      return;
-    }
-
     if (signatureRequired && !signatureFile && !ees?.creatorSignatureName) {
-      toast.error("Upload the creator signature before saving this Garuda EES.");
+      showStep4ValidationError(
+        "Upload the creator signature before saving this Garuda EES.",
+        "ees-field-creator-signature",
+      );
       return;
     }
 
     if (!approvalEesId) {
-      toast.error("EES document ID is not available.");
+      showStep4ValidationError("EES document ID is not available.");
       return;
     }
 
+    setValidationError(null);
     setSaving(true);
     try {
       await submitEesForApproval({
@@ -3623,7 +3881,7 @@ function Step4PreviewOnlyReview({
       const payload = axios.isAxiosError<{ message?: string; error?: string }>(caughtError)
         ? caughtError.response?.data
         : null;
-      toast.error(
+      showStep4ValidationError(
         payload?.message
         || payload?.error
         || "Draft could not be submitted for approval. Please try again.",
@@ -3657,13 +3915,19 @@ function Step4PreviewOnlyReview({
     }
 
     if (!["image/png", "image/jpeg"].includes(file.type)) {
-      toast.error("Signature must be a PNG or JPG image.");
+      showStep4ValidationError(
+        "Signature must be a PNG or JPG image.",
+        "ees-field-creator-signature",
+      );
       event.target.value = "";
       return;
     }
 
     if (file.size > 5 * 1024 * 1024) {
-      toast.error("Signature image must be 5 MB or smaller.");
+      showStep4ValidationError(
+        "Signature image must be 5 MB or smaller.",
+        "ees-field-creator-signature",
+      );
       event.target.value = "";
       return;
     }
@@ -3682,10 +3946,17 @@ function Step4PreviewOnlyReview({
     }
 
     if (!backendId) {
-      toast.error("Service Bulletin ID is not available.");
+      showStep4ValidationError("Service Bulletin ID is not available.");
       return;
     }
 
+    const contentError = firstStep4ContentError();
+    if (contentError) {
+      showStep4ValidationError(contentError.message, contentError.fieldId);
+      return;
+    }
+
+    setValidationError(null);
     setIsFinishingEdit(true);
     try {
       // PATCH /ees replaces the EES payload. Re-read the complete Citilink AI
@@ -3724,7 +3995,7 @@ function Step4PreviewOnlyReview({
       setPdfVersion(version => version + 1);
       toast.success("EES updated and PDF preview refreshed.");
     } catch (caughtError) {
-      toast.error(
+      showStep4ValidationError(
         getEesUpdateErrorMessage(
           caughtError,
           "EES changes could not be saved to the backend.",
@@ -3815,6 +4086,10 @@ function Step4PreviewOnlyReview({
       </div>
 
       <div className={`flex-1 space-y-4 overflow-y-auto ${docViewerOpen ? "px-3 py-3" : "px-5 py-4"}`}>
+        <StickyValidationAlert
+          error={validationError}
+          onDismiss={() => setValidationError(null)}
+        />
         {eesEditBlockReason && (
           <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/35 bg-amber-500/[0.08] px-3 py-2.5">
             <Shield size={14} className="mt-0.5 shrink-0 text-amber-600" />
@@ -3854,7 +4129,7 @@ function Step4PreviewOnlyReview({
             </div>
 
             <div className="grid grid-cols-2 gap-3">
-              <div>
+              <div id="ees-field-ge-category">
                 <label className="mb-1.5 block text-[9px] font-bold uppercase tracking-wider text-muted-foreground">GE Compliance Category</label>
                 <select
                   value={editGECategory}
@@ -3867,7 +4142,7 @@ function Step4PreviewOnlyReview({
                   {GE_SB_CATEGORIES.map(category => <option key={category.level} value={category.level}>{category.level} — {category.title}</option>)}
                 </select>
               </div>
-              <div>
+              <div id="ees-field-ge-impact">
                 <label className="mb-1.5 block text-[9px] font-bold uppercase tracking-wider text-muted-foreground">GE Operational Impact</label>
                 <select
                   value={editGEImpact}
@@ -3895,7 +4170,7 @@ function Step4PreviewOnlyReview({
             )}
 
             {hasGEOverride && (
-              <div className="mt-3">
+              <div id="ees-field-ge-override-reason" className="mt-3">
                 <label className="mb-1.5 block text-[9px] font-bold uppercase tracking-wider text-muted-foreground">
                   Override Reason <span className="text-red-500">*</span>
                 </label>
@@ -4003,7 +4278,7 @@ function Step4PreviewOnlyReview({
               )}
             </div>
 
-            <div>
+            <div id="ees-field-creator-signature">
               <div className="mb-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
                 Creator Signature {signatureRequired && <span className="text-red-500">*</span>}
               </div>

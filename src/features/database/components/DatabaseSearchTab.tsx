@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useState } from "react";
 import {
   AlertCircle,
-  CalendarDays,
   ChevronLeft,
   ChevronRight,
   Download,
@@ -43,7 +42,7 @@ function SVRList({
               Shop Visit Reports
             </h2>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Seluruh laporan SVR yang tersedia pada sumber data aktif.
+              Seluruh laporan SVR APU/Engine yang tersedia pada backend.
             </p>
           </div>
         </div>
@@ -55,15 +54,17 @@ function SVRList({
         </div>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[1120px] text-left">
+        <table className="w-full min-w-[1180px] text-left">
           <thead className="bg-muted/70">
             <tr className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-              <th className="px-5 py-3">Engine</th>
+              <th className="px-5 py-3">APU / Engine</th>
               <th className="px-4 py-3">SVR Document</th>
-              <th className="px-4 py-3">Shop Visit Period</th>
-              <th className="px-4 py-3">Report Date</th>
-              <th className="px-4 py-3">Recorded Work</th>
-              <th className="px-4 py-3">Release</th>
+              <th className="px-4 py-3">Configuration</th>
+              <th className="px-4 py-3">LLP</th>
+              <th className="px-4 py-3">SB / AD</th>
+              <th className="px-4 py-3">Accessories</th>
+              <th className="px-4 py-3">Compliance</th>
+              <th className="px-4 py-3">Uploaded</th>
               <th className="px-5 py-3 text-right">Actions</th>
             </tr>
           </thead>
@@ -73,8 +74,7 @@ function SVRList({
                 report.storedFileName
                 && report.storedFileName.toUpperCase() !== "PENDING",
               );
-              const complianceCount = report.complianceRecords?.length ?? 0;
-              const configurationCount = report.configurationReport?.length ?? 0;
+              const summary = report.summary;
 
               return (
                 <tr
@@ -83,10 +83,10 @@ function SVRList({
                 >
                   <td className="px-5 py-4">
                     <p className="font-semibold text-foreground">
-                      ESN {report.engineSerialNumber}
+                      Serial / ESN {report.engineSerialNumber}
                     </p>
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {report.engineType || report.engine?.model || "Engine type unavailable"}
+                      {report.engineType || report.engine?.model || "Unit type unavailable"}
                     </p>
                   </td>
                   <td className="px-4 py-4">
@@ -97,41 +97,14 @@ function SVRList({
                       {report.originalFileName || "File name unavailable"}
                     </p>
                   </td>
-                  <td className="px-4 py-4">
-                    <div className="flex items-start gap-2 text-xs">
-                      <CalendarDays className="mt-0.5 shrink-0 text-blue-600" size={13} />
-                      <div>
-                        <p className="font-medium text-foreground">
-                          {formatDateTime(report.shopInDate)}
-                        </p>
-                        <p className="mt-0.5 text-[10px] text-muted-foreground">
-                          to {formatDateTime(report.shopOutDate)}
-                        </p>
-                      </div>
-                    </div>
+                  <td className="px-4 py-4 text-xs font-semibold text-foreground">{summary?.configurationItems ?? 0}</td>
+                  <td className="px-4 py-4 text-xs font-semibold text-foreground">{summary?.llpItems ?? 0}</td>
+                  <td className="px-4 py-4 text-xs font-semibold text-foreground">
+                    {summary?.serviceBulletins ?? 0} SB · {summary?.airworthinessDirectives ?? 0} AD
                   </td>
-                  <td className="px-4 py-4 text-xs font-medium text-foreground">
-                    {formatDateTime(report.reportDate)}
-                  </td>
-                  <td className="px-4 py-4">
-                    <div className="flex flex-wrap gap-1.5">
-                      <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
-                        {complianceCount} compliance
-                      </span>
-                      <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
-                        {configurationCount} config
-                      </span>
-                    </div>
-                  </td>
-                  <td className="px-4 py-4">
-                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold ${
-                      report.authorizedReleaseStatus?.toUpperCase() === "RELEASED"
-                        ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                        : "border-slate-200 bg-slate-50 text-slate-600"
-                    }`}>
-                      {report.authorizedReleaseStatus || "Not available"}
-                    </span>
-                  </td>
+                  <td className="px-4 py-4 text-xs font-semibold text-foreground">{summary?.accessories ?? 0}</td>
+                  <td className="px-4 py-4 text-xs font-semibold text-foreground">{summary?.complianceRecords ?? 0}</td>
+                  <td className="px-4 py-4 text-xs font-medium text-foreground">{formatDateTime(report.createdAt)}</td>
                   <td className="px-5 py-4">
                     <div className="flex justify-end gap-2">
                       <Link
@@ -213,7 +186,7 @@ export function DatabaseSearchTab() {
             {["B737-800", "B777-300ER", "A320", "ATR72"].map((item) => <option key={item} value={item}>{item}</option>)}
           </select>
         </label>
-        <label className="text-xs font-semibold text-foreground">{source === "SVR" ? "Engine Serial Number (exact match)" : source === "SB" ? "SB Number / Title / Issuer" : "ESN / Part Number / Component / Bulletin"}
+        <label className="text-xs font-semibold text-foreground">{source === "SVR" ? "APU / Engine Serial Number (exact match)" : source === "SB" ? "SB Number / Title / Issuer" : "ESN / Part Number / Component / Bulletin"}
           <input value={query} onChange={(event) => { setQuery(event.target.value); setResult(source === "SB" ? "SB" : null); svr.reset(); }} list={source === "SVR" || source === "SB" ? undefined : "database-search-options"} placeholder={source === "SVR" ? "e.g. 660235 (empty = all SVR)" : source === "SB" ? "Cari Service Bulletin..." : "Type ESN, P/N, or component"} className="mt-2 w-full rounded-xl border border-border bg-[var(--input-background)] px-3 py-2.5 text-sm font-normal outline-none" />
         </label>
         <div>

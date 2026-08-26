@@ -215,6 +215,30 @@ export function mapShopVisitReport(value: unknown): ShopVisitReport | null {
 
   const rawPayload = parseRecord(value.rawPayload);
   const engine = isRecord(value.engine) ? value.engine : {};
+  const configurationReport = (Array.isArray(value.configurationReport) ? value.configurationReport : [])
+    .map(mapConfigurationItem)
+    .filter((item): item is ShopVisitConfigurationItem => item !== null);
+  const llpStatus = (Array.isArray(value.llpStatus) ? value.llpStatus : [])
+    .map(mapLlpItem)
+    .filter((item): item is ShopVisitLlpItem => item !== null);
+  const sbStatus = (Array.isArray(value.sbStatus) ? value.sbStatus : [])
+    .map(mapSbStatus)
+    .filter((item): item is ShopVisitSbStatus => item !== null);
+  const adStatus = (Array.isArray(value.adStatus) ? value.adStatus : [])
+    .map(mapAdStatus)
+    .filter((item): item is ShopVisitAdStatus => item !== null);
+  const accessoriesList = (Array.isArray(value.accessoriesList) ? value.accessoriesList : [])
+    .map(mapAccessoryItem)
+    .filter((item): item is ShopVisitAccessoryItem => item !== null);
+  const complianceRecords = (Array.isArray(value.complianceRecords) ? value.complianceRecords : [])
+    .map(mapComplianceRecord)
+    .filter((item): item is ShopVisitComplianceRecord => item !== null);
+  const counts = isRecord(value._count)
+    ? value._count
+    : isRecord(value.summary)
+      ? value.summary
+      : {};
+
   return {
     ...value,
     id,
@@ -260,24 +284,35 @@ export function mapShopVisitReport(value: unknown): ShopVisitReport | null {
           updatedAt: nullableText(engine.updatedAt),
         }
       : null,
-    configurationReport: (Array.isArray(value.configurationReport) ? value.configurationReport : [])
-      .map(mapConfigurationItem)
-      .filter((item): item is ShopVisitConfigurationItem => item !== null),
-    llpStatus: (Array.isArray(value.llpStatus) ? value.llpStatus : [])
-      .map(mapLlpItem)
-      .filter((item): item is ShopVisitLlpItem => item !== null),
-    sbStatus: (Array.isArray(value.sbStatus) ? value.sbStatus : [])
-      .map(mapSbStatus)
-      .filter((item): item is ShopVisitSbStatus => item !== null),
-    adStatus: (Array.isArray(value.adStatus) ? value.adStatus : [])
-      .map(mapAdStatus)
-      .filter((item): item is ShopVisitAdStatus => item !== null),
-    accessoriesList: (Array.isArray(value.accessoriesList) ? value.accessoriesList : [])
-      .map(mapAccessoryItem)
-      .filter((item): item is ShopVisitAccessoryItem => item !== null),
-    complianceRecords: (Array.isArray(value.complianceRecords) ? value.complianceRecords : [])
-      .map(mapComplianceRecord)
-      .filter((item): item is ShopVisitComplianceRecord => item !== null),
+    configurationReport,
+    llpStatus,
+    sbStatus,
+    adStatus,
+    accessoriesList,
+    complianceRecords,
+    summary: {
+      configurationItems: positiveInteger(
+        counts.configurationReport ?? counts.configurationItems,
+        configurationReport.length,
+      ),
+      llpItems: positiveInteger(counts.llpStatus ?? counts.llpItems, llpStatus.length),
+      serviceBulletins: positiveInteger(
+        counts.sbStatus ?? counts.serviceBulletins,
+        sbStatus.length,
+      ),
+      airworthinessDirectives: positiveInteger(
+        counts.adStatus ?? counts.airworthinessDirectives,
+        adStatus.length,
+      ),
+      accessories: positiveInteger(
+        counts.accessoriesList ?? counts.accessories,
+        accessoriesList.length,
+      ),
+      complianceRecords: positiveInteger(
+        counts.complianceRecords,
+        complianceRecords.length,
+      ),
+    },
   };
 }
 
@@ -286,7 +321,11 @@ export function mapShopVisitReportList(value: unknown): ShopVisitReportListRespo
   const data = (Array.isArray(response.data) ? response.data : [])
     .map(mapShopVisitReport)
     .filter((item): item is ShopVisitReport => item !== null);
-  const meta = isRecord(response.meta) ? response.meta : {};
+  const meta = isRecord(response.meta)
+    ? response.meta
+    : isRecord(response.pagination)
+      ? response.pagination
+      : {};
   const page = positiveInteger(meta.page, 1) || 1;
   const limit = positiveInteger(meta.limit, 20) || 20;
   const total = positiveInteger(meta.total, data.length);

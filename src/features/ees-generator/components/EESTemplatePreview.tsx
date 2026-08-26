@@ -478,7 +478,7 @@ export function EESTemplatePreview({
           <div className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider mb-3">TASK APPLICABILITY & COMPLIANCE</div>
           <div className={docViewerOpen ? "grid grid-cols-6 grid-rows-2 gap-3" : "grid grid-cols-5 gap-3"}>
             {/* Warranty */}
-            <div className={`flex flex-col items-center ${docViewerOpen ? "col-span-2 row-span-1" : "col-span-1"}`}>
+            <div id="ees-field-warranty" className={`flex flex-col items-center ${docViewerOpen ? "col-span-2 row-span-1" : "col-span-1"}`}>
               <div className="text-[11px] text-muted-foreground mb-1">Warranty</div>
               {editableFields ? (
                 <CompactRadioOptions
@@ -492,7 +492,7 @@ export function EESTemplatePreview({
               )}
             </div>
             {/* Applicable */}
-            <div className={`flex flex-col items-center ${docViewerOpen ? "col-span-2 row-span-1" : "col-span-1"}`}>
+            <div id="ees-field-applicable" className={`flex flex-col items-center ${docViewerOpen ? "col-span-2 row-span-1" : "col-span-1"}`}>
               <div className="text-[11px] text-muted-foreground mb-1">Applicable</div>
               {editableFields ? (
                 <CompactRadioOptions
@@ -507,7 +507,7 @@ export function EESTemplatePreview({
             </div>
 
             {/* Rep */}
-            <div className={`flex flex-col items-center justify-center col-span-1 ${docViewerOpen ? "row-span-2" : ""}`}>
+            <div id="ees-field-rep" className={`flex flex-col items-center justify-center col-span-1 ${docViewerOpen ? "row-span-2" : ""}`}>
               <div className="text-[11px] text-muted-foreground mb-1">Rep</div>
               {editableFields ? (
                 <CompactRadioOptions
@@ -521,7 +521,7 @@ export function EESTemplatePreview({
               )}
             </div>
             {/* Due At */}
-            <div className={`flex flex-col items-center ${docViewerOpen ? "col-span-2 row-span-1" : "col-span-1"}`}>
+            <div id="ees-field-dueAt" className={`flex flex-col items-center ${docViewerOpen ? "col-span-2 row-span-1" : "col-span-1"}`}>
               <div className="text-[11px] text-muted-foreground mb-1">Due At</div>
               {editableFields ? (
                 <input
@@ -538,7 +538,7 @@ export function EESTemplatePreview({
               )}
             </div>
             {/* Task Type */}
-            <div className={`flex flex-col items-center ${docViewerOpen ? "col-span-2 row-span-1" : "col-span-1"}`}>
+            <div id="ees-field-taskType" className={`flex flex-col items-center ${docViewerOpen ? "col-span-2 row-span-1" : "col-span-1"}`}>
               <div className="text-[11px] text-muted-foreground mb-1">Task Type</div>
               {editableFields ? (
                 <select value={ees.taskType} onChange={e => onFieldChange?.("taskType", e.target.value)}

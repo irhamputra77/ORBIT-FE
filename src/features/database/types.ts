@@ -37,7 +37,17 @@ export interface ShopVisitReport {
   adStatus?: ShopVisitAdStatus[];
   accessoriesList?: ShopVisitAccessoryItem[];
   complianceRecords?: ShopVisitComplianceRecord[];
+  summary?: ShopVisitReportSummary;
   [key: string]: unknown;
+}
+
+export interface ShopVisitReportSummary {
+  configurationItems: number;
+  llpItems: number;
+  serviceBulletins: number;
+  airworthinessDirectives: number;
+  accessories: number;
+  complianceRecords: number;
 }
 
 export interface ShopVisitReportEngine {

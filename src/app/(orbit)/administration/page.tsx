@@ -1,5 +1,5 @@
-import { BackendFeatureUnavailable } from "@/components/orbit/BackendFeatureUnavailable";
+import AdminDashboardPage from "@/features/dashboard/components/AdminDashboardPage";
 
 export default function Page() {
-  return <BackendFeatureUnavailable title="Administration belum tersedia" />;
+  return <AdminDashboardPage />;
 }

@@ -11,8 +11,8 @@ interface AppContextType {
   setSelectedEngine: (engine: string | null) => void;
   globalSearchOpen: boolean;
   setGlobalSearchOpen: (open: boolean) => void;
-  userRole: 'engineer' | 'manager';
-  setUserRole: (role: 'engineer' | 'manager') => void;
+  userRole: 'engineer' | 'manager' | 'admin';
+  setUserRole: (role: 'engineer' | 'manager' | 'admin') => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -22,7 +22,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [selectedEngine, setSelectedEngine] = useState<string | null>(null);
   const [globalSearchOpen, setGlobalSearchOpen] = useState(false);
-  const [userRole, setUserRole] = useState<'engineer' | 'manager'>('engineer');
+  const [userRole, setUserRole] = useState<'engineer' | 'manager' | 'admin'>('engineer');
 
   useEffect(() => {
     if (darkMode) {

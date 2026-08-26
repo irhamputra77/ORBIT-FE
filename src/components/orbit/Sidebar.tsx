@@ -33,6 +33,7 @@ import {
   MessageCircle,
   CheckCircle2,
   LogOut,
+  UsersRound,
 } from "lucide-react";
 
 import { useApp } from "../../app/(orbit)/context/AppContext";
@@ -134,6 +135,15 @@ const managerNavItems: NavItem[] = [
   { label: "Dashboard", icon: LayoutDashboard, path: "/dashboard" },
   { label: "Manager Workspace", icon: CheckCircle2, path: "/manager-ees-review" },
   { label: "Team Chat", icon: MessageCircle, path: "/team-chat", disabled: true },
+];
+
+const adminNavItems: NavItem[] = [
+  { label: "Admin Dashboard", icon: Settings, path: "/administration" },
+  { label: "User Management", icon: UsersRound, path: "/administration/users" },
+  { label: "Engineering Dashboard", icon: LayoutDashboard, path: "/dashboard" },
+  { label: "Database", icon: Database, path: "/database" },
+  { label: "EES Approval", icon: CheckCircle2, path: "/manager-ees-review" },
+  { label: "SB Status", icon: Shield, path: "/adsb-status" },
 ];
 
 function NavTooltip({
@@ -331,7 +341,11 @@ export function Sidebar() {
   const { sidebarCollapsed, toggleSidebar, userRole } = useApp();
 
   const { submitLogout, isLoggingOut } = useLogout();
-  const currentNavItems = userRole === "manager" ? managerNavItems : navItems;
+  const currentNavItems = userRole === "admin"
+    ? adminNavItems
+    : userRole === "manager"
+      ? managerNavItems
+      : navItems;
   const sidebarState = sidebarCollapsed ? "closed" : "open";
 
   return (

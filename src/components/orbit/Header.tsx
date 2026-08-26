@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Sun, Moon, ChevronDown, Search, X, Mail, FileText, Loader2, Building2, UserRound } from 'lucide-react';
+import { Sun, Moon, ChevronDown, Search, X, Mail, FileText, Loader2, Building2, UserRound, ShieldCheck } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { usePathname } from 'next/navigation';
 import { useApp } from '../../app/(orbit)/context/AppContext';
@@ -39,6 +39,15 @@ export function Header() {
     ? profileQuery.data.role.replaceAll("_", " ")
     : "Authenticated user";
   const initials = getInitials(displayName);
+
+  useEffect(() => {
+    const authenticatedRole = profileQuery.data?.role;
+    if (authenticatedRole === "ADMIN") setUserRole("admin");
+    else if (authenticatedRole === "MANAGER") setUserRole("manager");
+    else if (authenticatedRole === "ENGINEER" || authenticatedRole === "TECHNICIAN") {
+      setUserRole("engineer");
+    }
+  }, [profileQuery.data?.role, setUserRole]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -199,6 +208,11 @@ export function Header() {
       </AnimatePresence>
 
       {/* Role Switcher */}
+      {userRole === "admin" ? (
+        <div className="mr-2 inline-flex items-center gap-2 rounded-lg border border-blue-700/20 bg-blue-700/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-blue-700">
+          <ShieldCheck size={13} /> Administrator
+        </div>
+      ) : (
       <div className="flex items-center p-0.5 rounded-lg mr-2" style={{ background: 'var(--muted)', border: '1px solid var(--border)' }}>
         <button
           onClick={() => changeRole('engineer')}
@@ -223,6 +237,7 @@ export function Header() {
           Manager
         </button>
       </div>
+      )}
 
       <NotificationCenter />
 

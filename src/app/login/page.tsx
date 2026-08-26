@@ -62,7 +62,7 @@ export default function LoginPage() {
     const storage = rememberMe ? window.localStorage : window.sessionStorage;
     storage.setItem("orbit_user", JSON.stringify(result.user));
     window.sessionStorage.setItem(SHOW_NOTIFICATION_TOAST_AFTER_LOGIN, "1");
-    router.replace("/dashboard");
+    router.replace(result.user.role.toUpperCase() === "ADMIN" ? "/administration" : "/dashboard");
     router.refresh();
   };
 
