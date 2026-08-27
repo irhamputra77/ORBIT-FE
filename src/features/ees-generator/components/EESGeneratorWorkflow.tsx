@@ -141,6 +141,8 @@ const engMap: Record<string, string> = {
   ATR72: "PW127M",
 };
 
+const SERVICE_BULLETIN_PAGE_SIZE = 20;
+
 type ManualUploadTemplate = "garuda" | "citilink";
 
 type WorkflowValidationError = {
@@ -981,6 +983,7 @@ function Step1SelectSB({
   const [filterFleet, setFilterFleet] = useState("");
   const [filterEngine, setFilterEngine] = useState("");
   const [filterSync, setFilterSync] = useState("");
+  const [serviceBulletinPage, setServiceBulletinPage] = useState(1);
   const [selectedSB, setSelectedSB] = useState<DBServiceBulletin | null>(saved?.selectedSB || null);
   const [selectedEesDocument, setSelectedEesDocument] =
     useState<ServiceBulletinEesDocument | null>(saved?.generatedEesDocument || null);
@@ -1005,6 +1008,7 @@ function Step1SelectSB({
   const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
   const [preparingEes, setPreparingEes] = useState(false);
   const detailRequestVersion = useRef(0);
+  const serviceBulletinListRef = useRef<HTMLDivElement>(null);
   const needsFleetSelection = Boolean(selectedSB && isMissingFleetType(selectedSB.fleet));
   const aircraftTypesQuery = useAircraftTypes(
     showManualModal || (showContinueRequirementsModal && needsFleetSelection),
@@ -1059,6 +1063,37 @@ function Step1SelectSB({
     const matchesSync = !filterSync || sb.syncStatus === filterSync;
     return matchesQuery && matchesFleet && matchesEngine && matchesSync;
   });
+  const serviceBulletinTotalPages = Math.max(
+    1,
+    Math.ceil(visibleSBs.length / SERVICE_BULLETIN_PAGE_SIZE),
+  );
+  const serviceBulletinPageStart = (serviceBulletinPage - 1) * SERVICE_BULLETIN_PAGE_SIZE;
+  const paginatedServiceBulletins = visibleSBs.slice(
+    serviceBulletinPageStart,
+    serviceBulletinPageStart + SERVICE_BULLETIN_PAGE_SIZE,
+  );
+  const serviceBulletinRangeStart = visibleSBs.length === 0
+    ? 0
+    : serviceBulletinPageStart + 1;
+  const serviceBulletinRangeEnd = Math.min(
+    serviceBulletinPageStart + SERVICE_BULLETIN_PAGE_SIZE,
+    visibleSBs.length,
+  );
+
+  useEffect(() => {
+    setServiceBulletinPage(currentPage => Math.min(currentPage, serviceBulletinTotalPages));
+  }, [serviceBulletinTotalPages]);
+
+  const changeServiceBulletinPage = (nextPage: number) => {
+    const normalizedPage = Math.min(
+      Math.max(nextPage, 1),
+      serviceBulletinTotalPages,
+    );
+    setServiceBulletinPage(normalizedPage);
+    window.requestAnimationFrame(() => {
+      serviceBulletinListRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    });
+  };
 
   const loadSelectedSB = async (sb: DBServiceBulletin) => {
     const requestVersion = ++detailRequestVersion.current;
@@ -1799,12 +1834,22 @@ function Step1SelectSB({
             <Search size={11} className="shrink-0 text-muted-foreground" />
             <input
               value={searchQuery}
-              onChange={(event) => setSearchQuery(event.target.value)}
+              onChange={(event) => {
+                setSearchQuery(event.target.value);
+                setServiceBulletinPage(1);
+              }}
               placeholder="Search SB ID, fleet, engine type..."
               className="flex-1 bg-transparent text-[11px] text-foreground outline-none placeholder:text-muted-foreground"
             />
             {searchQuery && (
-              <button type="button" onClick={() => setSearchQuery("")} aria-label="Clear Service Bulletin search">
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery("");
+                  setServiceBulletinPage(1);
+                }}
+                aria-label="Clear Service Bulletin search"
+              >
                 <X size={10} className="text-muted-foreground" />
               </button>
             )}
@@ -1812,7 +1857,10 @@ function Step1SelectSB({
           <div className="flex gap-1.5">
             <select
               value={filterFleet}
-              onChange={(event) => setFilterFleet(event.target.value)}
+              onChange={(event) => {
+                setFilterFleet(event.target.value);
+                setServiceBulletinPage(1);
+              }}
               className="min-w-0 flex-1 rounded-lg border border-border bg-muted px-2 py-1.5 text-[10px] text-foreground outline-none"
             >
               <option value="">All Fleets</option>
@@ -1820,7 +1868,10 @@ function Step1SelectSB({
             </select>
             <select
               value={filterEngine}
-              onChange={(event) => setFilterEngine(event.target.value)}
+              onChange={(event) => {
+                setFilterEngine(event.target.value);
+                setServiceBulletinPage(1);
+              }}
               className="min-w-0 flex-1 rounded-lg border border-border bg-muted px-2 py-1.5 text-[10px] text-foreground outline-none"
             >
               <option value="">All Engines</option>
@@ -1828,7 +1879,10 @@ function Step1SelectSB({
             </select>
             <select
               value={filterSync}
-              onChange={(event) => setFilterSync(event.target.value)}
+              onChange={(event) => {
+                setFilterSync(event.target.value);
+                setServiceBulletinPage(1);
+              }}
               className="min-w-0 flex-1 rounded-lg border border-border bg-muted px-2 py-1.5 text-[10px] text-foreground outline-none"
             >
               <option value="">All</option>
@@ -1851,12 +1905,12 @@ function Step1SelectSB({
             Main Database — Service Bulletins
           </span>
           <span className="ml-auto text-[9px] text-white/60">
-            {`${visibleSBs.length} shown · ${allSBs.length} received from API`}
+            {`${visibleSBs.length} matching · ${allSBs.length} received from API`}
           </span>
         </motion.div>
 
         {/* SB list */}
-        <div className="flex-1 overflow-y-auto">
+        <div ref={serviceBulletinListRef} className="flex-1 overflow-y-auto">
           {serviceBulletinQuery.isLoading && (
             <div className="flex items-center justify-center gap-2 px-3 py-8 text-[11px] text-muted-foreground">
               <Loader2 size={13} className="animate-spin" /> Loading Service Bulletins…
@@ -1871,13 +1925,13 @@ function Step1SelectSB({
               </button>
             </div>
           )}
-          {visibleSBs.map((sb, i) => {
+          {paginatedServiceBulletins.map((sb, i) => {
             const isSelected = selectedSB?.id === sb.id;
             const isUnsynced = sb.syncStatus === "Unsynced";
             const isLoadingDetail = detailLoadingId === sb.backendId;
             return (
               <motion.div
-                key={sb.id + i}
+                key={sb.backendId || `${sb.id}-${serviceBulletinPageStart + i}`}
                 initial={{ opacity: 0, y: 10, scale: 0.985 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 transition={{
@@ -1951,6 +2005,43 @@ function Step1SelectSB({
             </motion.div>
           )}
         </div>
+
+        {!serviceBulletinQuery.isLoading
+          && !serviceBulletinQuery.error
+          && visibleSBs.length > 0
+          && serviceBulletinTotalPages > 1 && (
+            <nav
+              aria-label="Service Bulletin pagination"
+              className="flex shrink-0 items-center justify-between gap-3 border-t border-border bg-card px-3 py-2"
+            >
+              <span className="text-[9px] text-muted-foreground">
+                {serviceBulletinRangeStart}–{serviceBulletinRangeEnd} of {visibleSBs.length}
+              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => changeServiceBulletinPage(serviceBulletinPage - 1)}
+                  disabled={serviceBulletinPage <= 1}
+                  aria-label="Previous Service Bulletin page"
+                  className="flex h-7 items-center gap-1 rounded-lg border border-border bg-background px-2 text-[9px] font-semibold text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <ChevronLeft size={11} /> Previous
+                </button>
+                <span className="min-w-14 text-center text-[9px] font-semibold text-foreground">
+                  {serviceBulletinPage}/{serviceBulletinTotalPages}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => changeServiceBulletinPage(serviceBulletinPage + 1)}
+                  disabled={serviceBulletinPage >= serviceBulletinTotalPages}
+                  aria-label="Next Service Bulletin page"
+                  className="flex h-7 items-center gap-1 rounded-lg border border-border bg-background px-2 text-[9px] font-semibold text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Next <ChevronRight size={11} />
+                </button>
+              </div>
+            </nav>
+          )}
 
         {selectedSB && (
           <div className="shrink-0 mx-3 mb-2 flex items-center gap-1.5 px-2 py-1.5 rounded-lg" style={{ background: "#0EA5E908", border: "1px solid #0EA5E920" }}>
@@ -2455,7 +2546,8 @@ function Step2SelectCategory({
   };
   const aiConfidence = sb?.aiConfidence ?? null;
   const assignedCategory = isGEMode ? geCategory.level : aiCategory;
-  const requiresManualEES = isCategoryManual(assignedCategory);
+  const lacksAiClassification = complianceCategory === 0 && aiConfidence === null;
+  const requiresManualEES = lacksAiClassification || isCategoryManual(assignedCategory);
   const hasExtractedAI = sb?.ocrStatus === "EXTRACTED" && Boolean(complianceCategory);
   const extractedRemarks = (sb?.extractedItems || [])
     .map(item => item.remarks)
@@ -2630,7 +2722,9 @@ function Step2SelectCategory({
       ...((remarks || extractedRemarks)
         ? { evaluationResult: remarks || extractedRemarks }
         : {}),
-      categorySource: "AI Classified — Manual EES Required",
+      categorySource: lacksAiClassification
+        ? "SB Not Generated by AI — Manual Input Required"
+        : "AI Classified — Manual EES Required",
     } : {}),
     remarks,
     ...manualDraft,
@@ -2829,13 +2923,21 @@ function Step2SelectCategory({
       />
       {/* Header */}
       <div className="flex items-center flex-wrap gap-2 mb-1">
-        <h3 className="text-foreground text-sm font-bold">{isGEMode ? "Review GE SB Compliance Classification" : "Review AI-Assigned EES Category"}</h3>
+        <h3 className="text-foreground text-sm font-bold">
+          {lacksAiClassification
+            ? "Manual EES Input"
+            : isGEMode
+              ? "Review GE SB Compliance Classification"
+              : "Review AI-Assigned EES Category"}
+        </h3>
         <span className="text-[10px] px-2 py-0.5 rounded-full font-medium" style={{ background: "rgba(0,194,255,0.1)", color: "#00C2FF", border: "1px solid rgba(0,194,255,0.2)" }}>Step 2</span>
         {isGEMode && <span className="rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-bold text-blue-600">GE Engine Mode</span>}
       </div>
       <p className="text-xs text-muted-foreground mb-4">
         {!selectedTemplate
           ? "Choose the Garuda or Citilink template first. The EES form and preview will appear after a template is selected."
+          : lacksAiClassification
+          ? "SB not generated by AI. Category and AI confidence are unavailable, so this Service Bulletin will use manual EES input."
           : isGEMode
           ? requiresManualEES
             ? `${assignedCategory} requires manual EES input. Complete the form below, then continue to Applicability Review. Step 4 will display the generated PDF.`
@@ -2918,7 +3020,34 @@ function Step2SelectCategory({
         </div>
       </div>
 
-      {isGEMode ? (
+      {lacksAiClassification ? (
+      <div className="min-w-0 rounded-xl border border-amber-500/35 bg-amber-500/[0.055] p-4">
+        <div className="mb-3 flex items-center gap-2">
+          <AlertTriangle size={13} className="text-amber-600" />
+          <span className="text-xs font-semibold text-foreground">SB not generated by AI</span>
+          <span className="ml-auto rounded bg-amber-600 px-2 py-0.5 text-[9px] font-bold text-white">
+            Manual Input
+          </span>
+        </div>
+        <div className="mb-3 grid grid-cols-3 gap-3">
+          <div>
+            <div className="mb-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">Category</div>
+            <div className="text-sm font-bold text-foreground">Unavailable</div>
+          </div>
+          <div>
+            <div className="mb-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">AI Confidence</div>
+            <div className="text-sm font-bold text-foreground">Unavailable</div>
+          </div>
+          <div>
+            <div className="mb-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">Input Mode</div>
+            <div className="text-sm font-bold text-amber-700 dark:text-amber-300">Manual EES</div>
+          </div>
+        </div>
+        <div className="rounded-lg border border-amber-500/20 bg-background/65 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
+          The backend did not provide a compliance category or AI confidence score. Select an EES template, then complete all required fields manually.
+        </div>
+      </div>
+      ) : isGEMode ? (
       <div className="min-w-0 rounded-xl p-4" style={{ background: "var(--card)", border: "1px solid var(--border)" }}>
         <div className="flex items-center gap-2 mb-3">
           <Brain size={12} style={{ color: "#00C2FF" }} />
@@ -3012,9 +3141,13 @@ function Step2SelectCategory({
             <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/[0.06] px-4 py-3">
               <Edit3 size={16} className="mt-0.5 shrink-0 text-amber-500" />
               <div>
-                <div className="text-xs font-bold text-foreground">Manual EES Input</div>
+                <div className="text-xs font-bold text-foreground">
+                  {lacksAiClassification ? "SB not generated by AI" : "Manual EES Input"}
+                </div>
                 <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
-                  Complete the EES form below. The values will be applied to the generated EES after Applicability Review.
+                  {lacksAiClassification
+                    ? "Category and AI confidence are unavailable. Complete the EES form manually before continuing."
+                    : "Complete the EES form below. The values will be applied to the generated EES after Applicability Review."}
                 </p>
               </div>
             </div>
