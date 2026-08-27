@@ -988,6 +988,7 @@ function Step1SelectSB({
   const [summarized, setSummarized] = useState(!!saved?.summarized);
   const [showManualModal, setShowManualModal] = useState(false);
   const [showCancelUploadConfirmation, setShowCancelUploadConfirmation] = useState(false);
+  const [showContinueRequirementsModal, setShowContinueRequirementsModal] = useState(false);
   const [eesNumber, setEesNumber] = useState(
     String(saved?.eesNumber || saved?.tdr || saved?.selectedSB?.eesNumber || ""),
   );
@@ -1005,7 +1006,9 @@ function Step1SelectSB({
   const [preparingEes, setPreparingEes] = useState(false);
   const detailRequestVersion = useRef(0);
   const needsFleetSelection = Boolean(selectedSB && isMissingFleetType(selectedSB.fleet));
-  const aircraftTypesQuery = useAircraftTypes(showManualModal || needsFleetSelection);
+  const aircraftTypesQuery = useAircraftTypes(
+    showManualModal || (showContinueRequirementsModal && needsFleetSelection),
+  );
   const aircraftTypes = aircraftTypesQuery.aircraftTypes;
   const aircraftTypesLoading = aircraftTypesQuery.isLoading;
   const aircraftTypesError = aircraftTypesQuery.error;
@@ -1329,6 +1332,7 @@ function Step1SelectSB({
 
       const editBlockReason = getEesEditBlockReason(eesResult.data);
       if (editBlockReason) {
+        setValidationError({ message: editBlockReason });
         toast.error(editBlockReason);
         return;
       }
@@ -1340,9 +1344,13 @@ function Step1SelectSB({
         "EES tidak dapat disiapkan. Silakan coba Continue kembali.",
       );
       const inferredFieldId = inferWorkflowErrorFieldId(message);
+      const normalizedMessage = message.toLowerCase();
       const fieldId = inferredFieldId === "ees-field-eesNumber"
         ? "workflow-ees-number"
-        : inferredFieldId;
+        : normalizedMessage.includes("aircraft type")
+          || normalizedMessage.includes("fleet")
+          ? "workflow-fleet-type"
+          : undefined;
       setValidationError({ message, fieldId });
       scrollToWorkflowField(fieldId);
     } finally {
@@ -1351,6 +1359,12 @@ function Step1SelectSB({
   };
 
   const handleContinue = () => {
+    if (!selectedSB || detailLoadingId || preparingEes) return;
+    setValidationError(null);
+    setShowContinueRequirementsModal(true);
+  };
+
+  const handleConfirmContinue = () => {
     if (!selectedSB || detailLoadingId || preparingEes) return;
     if (needsFleetSelection && !selectedFleetType.trim()) {
       const error = {
@@ -1372,6 +1386,12 @@ function Step1SelectSB({
     }
     setValidationError(null);
     void prepareEesAndContinue(selectedSB);
+  };
+
+  const handleCancelContinue = () => {
+    if (preparingEes) return;
+    setValidationError(null);
+    setShowContinueRequirementsModal(false);
   };
 
   const showInitialLoading = serviceBulletinQuery.isLoading
@@ -1603,12 +1623,171 @@ function Step1SelectSB({
         </div>
       </MotionPopup>
 
+      <MotionPopup
+        open={showContinueRequirementsModal}
+        onOpenChange={(open) => {
+          if (open) {
+            setShowContinueRequirementsModal(true);
+            return;
+          }
+          handleCancelContinue();
+        }}
+        title="Complete EES setup"
+        description="Provide the required EES information before continuing to Category Review."
+        className="max-w-md"
+        closeOnInteractOutside={false}
+      >
+        <div className="border-b border-border bg-gradient-to-br from-blue-600/[0.09] to-cyan-500/[0.04] px-5 py-4">
+          <div className="flex items-start gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-600/10 text-blue-600">
+              <FileText size={17} />
+            </div>
+            <div className="min-w-0">
+              <h3 className="text-sm font-bold text-foreground">Complete EES Information</h3>
+              <p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground">
+                Complete the required information for <span className="font-semibold text-foreground">{selectedSB?.id || "the selected SB"}</span> before continuing.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4 px-5 py-4">
+          <StickyValidationAlert
+            error={validationError}
+            onDismiss={() => setValidationError(null)}
+          />
+
+          {needsFleetSelection && (
+            <div id="workflow-fleet-type">
+              <div className="mb-1.5 flex items-center gap-1.5">
+                <AlertTriangle size={12} className="shrink-0 text-amber-600" />
+                <label htmlFor="workflow-fleet-type-input" className="text-[10px] font-bold uppercase tracking-wider text-foreground">
+                  Fleet / Aircraft Type <span className="text-red-500">*</span>
+                </label>
+              </div>
+              <select
+                id="workflow-fleet-type-input"
+                value={selectedFleetType}
+                disabled={preparingEes || aircraftTypesLoading}
+                onChange={(event) => {
+                  const nextFleet = event.target.value;
+                  setSelectedFleetType(nextFleet);
+                  if (nextFleet.trim() && validationError?.fieldId === "workflow-fleet-type") {
+                    setValidationError(null);
+                  }
+                  onSave({
+                    ...saved,
+                    selectedSB,
+                    generatedEesDocument: selectedEesDocument,
+                    summarized,
+                    eesNumber,
+                    tdr: eesNumber,
+                    fleet: nextFleet,
+                    isUnsyncedSB: false,
+                  });
+                }}
+                aria-invalid={validationError?.fieldId === "workflow-fleet-type"}
+                className={`w-full rounded-xl border bg-background px-3 py-2.5 text-xs font-semibold text-foreground outline-none transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${validationError?.fieldId === "workflow-fleet-type"
+                  ? "border-red-500 ring-2 ring-red-500/15 focus:border-red-600"
+                  : "border-border focus:border-blue-600"}`}
+              >
+                <option value="">
+                  {aircraftTypesLoading ? "Loading fleet types..." : "Select fleet / aircraft type"}
+                </option>
+                {selectableFleetTypes.map(fleetType => (
+                  <option key={fleetType} value={fleetType}>{fleetType}</option>
+                ))}
+              </select>
+              {aircraftTypesError ? (
+                <div className="mt-1.5 flex items-center justify-between gap-3 rounded-lg bg-red-500/[0.06] px-2.5 py-2 text-[9px] text-red-600">
+                  <span>Fleet types could not be loaded from the aircraft API.</span>
+                  <button
+                    type="button"
+                    onClick={aircraftTypesQuery.retry}
+                    disabled={preparingEes}
+                    className="font-semibold underline underline-offset-2 disabled:opacity-50"
+                  >
+                    Retry
+                  </button>
+                </div>
+              ) : (
+                <p className="mt-1.5 text-[9px] leading-relaxed text-muted-foreground">
+                  This SB does not provide fleet information, so a manual selection is required.
+                </p>
+              )}
+            </div>
+          )}
+
+          <div id="workflow-ees-number">
+            <label htmlFor="workflow-ees-number-input" className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-foreground">
+              EES Number <span className="text-red-500">*</span>
+            </label>
+            <input
+              id="workflow-ees-number-input"
+              value={eesNumber}
+              disabled={preparingEes}
+              onChange={(event) => {
+                const nextValue = event.target.value;
+                setEesNumber(nextValue);
+                if (nextValue.trim() && validationError?.fieldId === "workflow-ees-number") {
+                  setValidationError(null);
+                }
+                onSave({
+                  ...saved,
+                  selectedSB,
+                  generatedEesDocument: selectedEesDocument,
+                  summarized,
+                  eesNumber: nextValue,
+                  tdr: nextValue,
+                  fleet: needsFleetSelection ? selectedFleetType : selectedSB?.fleet,
+                  isUnsyncedSB: false,
+                });
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") handleConfirmContinue();
+              }}
+              placeholder="Enter EES number"
+              aria-invalid={validationError?.fieldId === "workflow-ees-number"}
+              className={`w-full rounded-xl border bg-background px-3 py-2.5 text-xs font-semibold text-foreground outline-none transition-colors placeholder:font-normal placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60 ${validationError?.fieldId === "workflow-ees-number"
+                ? "border-red-500 ring-2 ring-red-500/15 focus:border-red-600"
+                : "border-border focus:border-blue-600"}`}
+            />
+            <p className="mt-1.5 text-[9px] leading-relaxed text-muted-foreground">
+              Required for both manual and automatic EES generation workflows.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-3 border-t border-border bg-muted/60 px-5 py-4">
+          <button
+            type="button"
+            onClick={handleCancelContinue}
+            disabled={preparingEes}
+            className="rounded-xl border border-border px-4 py-2.5 text-sm font-semibold text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleConfirmContinue}
+            disabled={preparingEes || (needsFleetSelection && aircraftTypesLoading)}
+            className="flex min-w-48 items-center justify-center gap-2 rounded-xl bg-gradient-to-br from-blue-800 via-blue-600 to-cyan-500 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-blue-600/20 transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {preparingEes ? <Loader2 size={14} className="animate-spin" /> : null}
+            {preparingEes ? "Preparing EES..." : "Continue to Category Review"}
+            {!preparingEes ? <ChevronRight size={14} /> : null}
+          </button>
+        </div>
+      </MotionPopup>
+
       {/* ── SB List (right panel content for step 1) ─────────────── */}
       <div className="flex flex-col h-full overflow-hidden">
-        <StickyValidationAlert
-          error={validationError}
-          onDismiss={() => setValidationError(null)}
-        />
+        {!showContinueRequirementsModal && (
+          <StickyValidationAlert
+            error={validationError}
+            onDismiss={() => setValidationError(null)}
+          />
+        )}
         {/* User-controlled filters run after processed EES records are excluded. */}
         <motion.div
           initial={{ opacity: 0, y: -8 }}
@@ -1780,107 +1959,6 @@ function Step1SelectSB({
           </div>
         )}
 
-        {needsFleetSelection && (
-          <div
-            id="workflow-fleet-type"
-            className={`mx-3 mb-2 shrink-0 rounded-xl border px-3 py-2.5 transition-colors ${validationError?.fieldId === "workflow-fleet-type"
-              ? "border-red-500 bg-red-500/[0.05] ring-2 ring-red-500/15"
-              : "border-amber-400/70 bg-amber-500/[0.06]"}`}
-          >
-            <div className="mb-1.5 flex items-center gap-1.5">
-              <AlertTriangle size={12} className="shrink-0 text-amber-600" />
-              <label htmlFor="workflow-fleet-type-input" className="text-[10px] font-bold uppercase tracking-wider text-foreground">
-                Fleet / Aircraft Type <span className="text-red-500">*</span>
-              </label>
-            </div>
-            <select
-              id="workflow-fleet-type-input"
-              value={selectedFleetType}
-              disabled={Boolean(detailLoadingId) || preparingEes || aircraftTypesLoading}
-              onChange={(event) => {
-                const nextFleet = event.target.value;
-                setSelectedFleetType(nextFleet);
-                if (nextFleet.trim() && validationError?.fieldId === "workflow-fleet-type") {
-                  setValidationError(null);
-                }
-                onSave({
-                  ...saved,
-                  selectedSB,
-                  generatedEesDocument: selectedEesDocument,
-                  summarized,
-                  eesNumber,
-                  tdr: eesNumber,
-                  fleet: nextFleet,
-                  isUnsyncedSB: false,
-                });
-              }}
-              aria-invalid={validationError?.fieldId === "workflow-fleet-type"}
-              className={`w-full rounded-lg border bg-background px-3 py-2 text-xs font-semibold text-foreground outline-none transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${validationError?.fieldId === "workflow-fleet-type"
-                ? "border-red-500 focus:border-red-600"
-                : "border-border focus:border-blue-600"}`}
-            >
-              <option value="">
-                {aircraftTypesLoading ? "Loading fleet types..." : "Select fleet / aircraft type"}
-              </option>
-              {selectableFleetTypes.map(fleetType => (
-                <option key={fleetType} value={fleetType}>{fleetType}</option>
-              ))}
-            </select>
-            {aircraftTypesError ? (
-              <div className="mt-1.5 flex items-center justify-between gap-3 text-[9px] text-red-600">
-                <span>Fleet types could not be loaded from the aircraft API.</span>
-                <button
-                  type="button"
-                  onClick={aircraftTypesQuery.retry}
-                  className="font-semibold underline underline-offset-2"
-                >
-                  Retry
-                </button>
-              </div>
-            ) : (
-              <p className="mt-1 text-[9px] leading-relaxed text-muted-foreground">
-                This SB has no fleet information. Select one before generating or opening its EES.
-              </p>
-            )}
-          </div>
-        )}
-
-        <div
-          id="workflow-ees-number"
-          className={`mx-3 mb-2 shrink-0 rounded-xl border px-3 py-2.5 transition-colors ${validationError?.fieldId === "workflow-ees-number"
-            ? "border-red-500 bg-red-500/[0.05] ring-2 ring-red-500/15"
-            : "border-border bg-card"}`}
-        >
-          <label htmlFor="workflow-ees-number-input" className="mb-1.5 block text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-            EES Number <span className="text-red-500">*</span>
-          </label>
-          <input
-            id="workflow-ees-number-input"
-            value={eesNumber}
-            disabled={!selectedSB || preparingEes}
-            onChange={(event) => {
-              const nextValue = event.target.value;
-              setEesNumber(nextValue);
-              if (nextValue.trim()) setValidationError(null);
-              onSave({
-                ...saved,
-                selectedSB,
-                generatedEesDocument: selectedEesDocument,
-                summarized,
-                eesNumber: nextValue,
-                tdr: nextValue,
-                isUnsyncedSB: false,
-              });
-            }}
-            placeholder={selectedSB ? "Enter EES number before continuing" : "Select a Service Bulletin first"}
-            aria-invalid={validationError?.fieldId === "workflow-ees-number"}
-            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-xs font-semibold text-foreground outline-none transition-colors placeholder:font-normal placeholder:text-muted-foreground focus:border-blue-600 disabled:cursor-not-allowed disabled:opacity-60"
-          />
-          <p className="mt-1 text-[9px] leading-relaxed text-muted-foreground">
-            Required before generating or opening an EES, for both manual and automatic workflows.
-          </p>
-        </div>
-
         <WorkflowActionBar>
           <div className="flex w-full items-center justify-between gap-3">
             <div className="flex items-center gap-2">
@@ -1896,7 +1974,7 @@ function Step1SelectSB({
                 {summarizing ? "Summarizing..." : summarized ? "SB Summarized ✓" : "Summarize SB"}
               </button>
             </div>
-            <motion.button whileHover={nextButtonHover} whileTap={nextButtonTap} disabled={!selectedSB || !!detailLoadingId || preparingEes || (needsFleetSelection && !selectedFleetType.trim())} onClick={handleContinue}
+            <motion.button whileHover={nextButtonHover} whileTap={nextButtonTap} disabled={!selectedSB || !!detailLoadingId || preparingEes} onClick={handleContinue}
               className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40"
               style={{ background: "linear-gradient(135deg, #0E1B93, #0242DB, #00C2FF)", boxShadow: selectedSB ? "0 4px 16px rgba(0,194,255,0.3)" : "none" }}>
               {(detailLoadingId || preparingEes) && <Loader2 size={13} className="animate-spin" />}
