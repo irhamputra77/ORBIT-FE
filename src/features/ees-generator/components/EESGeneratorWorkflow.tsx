@@ -461,6 +461,18 @@ function isGeneratedServiceBulletin(sb: DBServiceBulletin) {
   return sb.draftStatus.toUpperCase() === "GENERATED" || Boolean(sb.generatedEesId);
 }
 
+function isMissingFleetType(value: unknown) {
+  if (typeof value !== "string") return true;
+  const normalized = value.trim().toLowerCase();
+  return !normalized
+    || normalized === "unassigned"
+    || normalized === "unknown"
+    || normalized === "n/a"
+    || normalized === "na"
+    || normalized === "-"
+    || normalized === "—";
+}
+
 function Step1SelectionLoadingState() {
   return (
     <motion.div
@@ -979,6 +991,12 @@ function Step1SelectSB({
   const [eesNumber, setEesNumber] = useState(
     String(saved?.eesNumber || saved?.tdr || saved?.selectedSB?.eesNumber || ""),
   );
+  const [selectedFleetType, setSelectedFleetType] = useState(() => {
+    const savedSelectedFleet = saved?.selectedSB?.fleet;
+    return isMissingFleetType(savedSelectedFleet)
+      ? String(saved?.fleet || "").trim()
+      : "";
+  });
   const [validationError, setValidationError] = useState<WorkflowValidationError | null>(null);
   const [uploadFleetType, setUploadFleetType] = useState("");
   const [uploadFile, setUploadFile] = useState<File | null>(null);
@@ -986,7 +1004,8 @@ function Step1SelectSB({
   const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
   const [preparingEes, setPreparingEes] = useState(false);
   const detailRequestVersion = useRef(0);
-  const aircraftTypesQuery = useAircraftTypes(showManualModal);
+  const needsFleetSelection = Boolean(selectedSB && isMissingFleetType(selectedSB.fleet));
+  const aircraftTypesQuery = useAircraftTypes(showManualModal || needsFleetSelection);
   const aircraftTypes = aircraftTypesQuery.aircraftTypes;
   const aircraftTypesLoading = aircraftTypesQuery.isLoading;
   const aircraftTypesError = aircraftTypesQuery.error;
@@ -1013,6 +1032,16 @@ function Step1SelectSB({
     [serviceBulletinQuery.items],
   );
   const allSBs = backendServiceBulletins;
+  const selectableFleetTypes = useMemo(
+    () => [...new Set([
+      ...aircraftTypes,
+      ...backendServiceBulletins
+        .map(serviceBulletin => serviceBulletin.fleet)
+        .filter(fleet => !isMissingFleetType(fleet)),
+      ...(!isMissingFleetType(selectedFleetType) ? [selectedFleetType] : []),
+    ])].sort((left, right) => left.localeCompare(right)),
+    [aircraftTypes, backendServiceBulletins, selectedFleetType],
+  );
   const uniqueFleets = [...new Set(allSBs.map((sb) => sb.fleet))];
   const uniqueEngines = [...new Set(allSBs.map((sb) => sb.engineType))];
   const visibleSBs = allSBs.filter((sb) => {
@@ -1031,6 +1060,7 @@ function Step1SelectSB({
   const loadSelectedSB = async (sb: DBServiceBulletin) => {
     const requestVersion = ++detailRequestVersion.current;
     setSelectedSB(sb);
+    setSelectedFleetType("");
     setSelectedEesDocument(null);
     setSummarized(false);
     setEesNumber(sb.eesNumber?.trim() || "");
@@ -1041,6 +1071,7 @@ function Step1SelectSB({
       summarized: false,
       eesNumber: sb.eesNumber?.trim() || "",
       tdr: sb.eesNumber?.trim() || "",
+      fleet: isMissingFleetType(sb.fleet) ? "" : sb.fleet,
       isUnsyncedSB: false,
     });
     if (!sb.backendId) {
@@ -1058,6 +1089,7 @@ function Step1SelectSB({
       );
       if (detailRequestVersion.current !== requestVersion) return;
       setSelectedSB(detailedSB);
+      if (!isMissingFleetType(detailedSB.fleet)) setSelectedFleetType("");
       setEesNumber(current => current || detailedSB.eesNumber?.trim() || "");
       onSave({
         selectedSB: detailedSB,
@@ -1065,6 +1097,7 @@ function Step1SelectSB({
         summarized: false,
         eesNumber: detailedSB.eesNumber?.trim() || "",
         tdr: detailedSB.eesNumber?.trim() || "",
+        fleet: isMissingFleetType(detailedSB.fleet) ? "" : detailedSB.fleet,
         isUnsyncedSB: false,
       });
     } catch {
@@ -1208,6 +1241,20 @@ function Step1SelectSB({
   const prepareEesAndContinue = async (sb: DBServiceBulletin) => {
     if (preparingEes) return;
 
+    const resolvedFleet = isMissingFleetType(sb.fleet)
+      ? selectedFleetType.trim()
+      : sb.fleet.trim();
+    if (!resolvedFleet) {
+      const error = {
+        message: "Select the Fleet / Aircraft Type before continuing the EES workflow.",
+        fieldId: "workflow-fleet-type",
+      };
+      setValidationError(error);
+      scrollToWorkflowField(error.fieldId);
+      return;
+    }
+    const sbWithFleet = { ...sb, fleet: resolvedFleet };
+
     const normalizedEesNumber = eesNumber.trim();
     if (!normalizedEesNumber) {
       const error = {
@@ -1219,13 +1266,13 @@ function Step1SelectSB({
       return;
     }
 
-    if (!sb.backendId) {
+    if (!sbWithFleet.backendId) {
       onNext({
-        selectedSB: sb,
+        selectedSB: sbWithFleet,
         generatedEesDocument: selectedEesDocument,
         aiSummary: saved?.aiSummary,
         summarized,
-        fleet: sb.fleet,
+        fleet: resolvedFleet,
         eesNumber: normalizedEesNumber,
         tdr: normalizedEesNumber,
         isUnsyncedSB: false,
@@ -1236,30 +1283,30 @@ function Step1SelectSB({
     setPreparingEes(true);
     try {
       let eesResult;
-      if (isGeneratedServiceBulletin(sb)) {
-        eesResult = await getServiceBulletinEes(sb.backendId);
+      if (isGeneratedServiceBulletin(sbWithFleet)) {
+        eesResult = await getServiceBulletinEes(sbWithFleet.backendId);
       } else {
-        await generateServiceBulletinEes(sb.backendId, {
+        await generateServiceBulletinEes(sbWithFleet.backendId, {
           eesNumber: normalizedEesNumber,
-          aircraftType: sb.fleet || undefined,
+          aircraftType: resolvedFleet,
         });
-        eesResult = await getServiceBulletinEes(sb.backendId);
+        eesResult = await getServiceBulletinEes(sbWithFleet.backendId);
       }
 
       // Recover when the SB metadata is stale and points to an EES that no longer exists.
       if (eesResult.status === "not-found") {
-        await generateServiceBulletinEes(sb.backendId, {
+        await generateServiceBulletinEes(sbWithFleet.backendId, {
           eesNumber: normalizedEesNumber,
-          aircraftType: sb.fleet || undefined,
+          aircraftType: resolvedFleet,
         });
-        eesResult = await getServiceBulletinEes(sb.backendId);
+        eesResult = await getServiceBulletinEes(sbWithFleet.backendId);
       }
 
       if (eesResult.status !== "available") {
         throw new Error("EES document was not found after generation.");
       }
 
-      const selectedWithEes = attachGeneratedEesDocument(sb, eesResult.data);
+      const selectedWithEes = attachGeneratedEesDocument(sbWithFleet, eesResult.data);
       setSelectedSB(selectedWithEes);
       setSelectedEesDocument(eesResult.data);
 
@@ -1305,6 +1352,15 @@ function Step1SelectSB({
 
   const handleContinue = () => {
     if (!selectedSB || detailLoadingId || preparingEes) return;
+    if (needsFleetSelection && !selectedFleetType.trim()) {
+      const error = {
+        message: "Fleet / Aircraft Type is required because the selected Service Bulletin does not provide one.",
+        fieldId: "workflow-fleet-type",
+      };
+      setValidationError(error);
+      scrollToWorkflowField(error.fieldId);
+      return;
+    }
     if (!eesNumber.trim()) {
       const error = {
         message: "EES Number is required for both manual and automatic EES input.",
@@ -1724,6 +1780,71 @@ function Step1SelectSB({
           </div>
         )}
 
+        {needsFleetSelection && (
+          <div
+            id="workflow-fleet-type"
+            className={`mx-3 mb-2 shrink-0 rounded-xl border px-3 py-2.5 transition-colors ${validationError?.fieldId === "workflow-fleet-type"
+              ? "border-red-500 bg-red-500/[0.05] ring-2 ring-red-500/15"
+              : "border-amber-400/70 bg-amber-500/[0.06]"}`}
+          >
+            <div className="mb-1.5 flex items-center gap-1.5">
+              <AlertTriangle size={12} className="shrink-0 text-amber-600" />
+              <label htmlFor="workflow-fleet-type-input" className="text-[10px] font-bold uppercase tracking-wider text-foreground">
+                Fleet / Aircraft Type <span className="text-red-500">*</span>
+              </label>
+            </div>
+            <select
+              id="workflow-fleet-type-input"
+              value={selectedFleetType}
+              disabled={Boolean(detailLoadingId) || preparingEes || aircraftTypesLoading}
+              onChange={(event) => {
+                const nextFleet = event.target.value;
+                setSelectedFleetType(nextFleet);
+                if (nextFleet.trim() && validationError?.fieldId === "workflow-fleet-type") {
+                  setValidationError(null);
+                }
+                onSave({
+                  ...saved,
+                  selectedSB,
+                  generatedEesDocument: selectedEesDocument,
+                  summarized,
+                  eesNumber,
+                  tdr: eesNumber,
+                  fleet: nextFleet,
+                  isUnsyncedSB: false,
+                });
+              }}
+              aria-invalid={validationError?.fieldId === "workflow-fleet-type"}
+              className={`w-full rounded-lg border bg-background px-3 py-2 text-xs font-semibold text-foreground outline-none transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${validationError?.fieldId === "workflow-fleet-type"
+                ? "border-red-500 focus:border-red-600"
+                : "border-border focus:border-blue-600"}`}
+            >
+              <option value="">
+                {aircraftTypesLoading ? "Loading fleet types..." : "Select fleet / aircraft type"}
+              </option>
+              {selectableFleetTypes.map(fleetType => (
+                <option key={fleetType} value={fleetType}>{fleetType}</option>
+              ))}
+            </select>
+            {aircraftTypesError ? (
+              <div className="mt-1.5 flex items-center justify-between gap-3 text-[9px] text-red-600">
+                <span>Fleet types could not be loaded from the aircraft API.</span>
+                <button
+                  type="button"
+                  onClick={aircraftTypesQuery.retry}
+                  className="font-semibold underline underline-offset-2"
+                >
+                  Retry
+                </button>
+              </div>
+            ) : (
+              <p className="mt-1 text-[9px] leading-relaxed text-muted-foreground">
+                This SB has no fleet information. Select one before generating or opening its EES.
+              </p>
+            )}
+          </div>
+        )}
+
         <div
           id="workflow-ees-number"
           className={`mx-3 mb-2 shrink-0 rounded-xl border px-3 py-2.5 transition-colors ${validationError?.fieldId === "workflow-ees-number"
@@ -1775,7 +1896,7 @@ function Step1SelectSB({
                 {summarizing ? "Summarizing..." : summarized ? "SB Summarized ✓" : "Summarize SB"}
               </button>
             </div>
-            <motion.button whileHover={nextButtonHover} whileTap={nextButtonTap} disabled={!selectedSB || !!detailLoadingId || preparingEes} onClick={handleContinue}
+            <motion.button whileHover={nextButtonHover} whileTap={nextButtonTap} disabled={!selectedSB || !!detailLoadingId || preparingEes || (needsFleetSelection && !selectedFleetType.trim())} onClick={handleContinue}
               className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-40"
               style={{ background: "linear-gradient(135deg, #0E1B93, #0242DB, #00C2FF)", boxShadow: selectedSB ? "0 4px 16px rgba(0,194,255,0.3)" : "none" }}>
               {(detailLoadingId || preparingEes) && <Loader2 size={13} className="animate-spin" />}
