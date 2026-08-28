@@ -99,9 +99,14 @@ function mapReviewRecord(value: unknown): EESReviewRecord | null {
   if (!isRecord(value)) return null;
   const sourceSb = isRecord(value.sourceSb) ? value.sourceSb : {};
   const operator = isRecord(sourceSb.operator) ? sourceSb.operator : {};
+  const approval = isRecord(value.approval) ? value.approval : {};
   const assignedEngineer = isRecord(value.assignedEngineer)
     ? value.assignedEngineer
-    : {};
+    : isRecord(approval.assignedTo)
+      ? approval.assignedTo
+      : isRecord(approval.currentAssignee)
+        ? approval.currentAssignee
+        : {};
   const evaluations = Array.isArray(value.evaluations)
     ? value.evaluations.map(mapEvaluation).filter((item): item is EESReviewEvaluation => item !== null)
     : [];
@@ -114,6 +119,12 @@ function mapReviewRecord(value: unknown): EESReviewRecord | null {
     ?? null;
   const assignedEngineerName = personName(assignedEngineer);
   const assignedRole = referredToRole(assignedEngineer.role);
+  const hasApprovalAssignment = assignedEngineerName !== "—"
+    || Object.keys(approval).length > 0;
+  const normalizedReviewStatus = text(value.reviewStatus).toUpperCase();
+  const status = normalizedReviewStatus === "PENDING" && !hasApprovalAssignment
+    ? "Draft"
+    : formatStatus(value.reviewStatus);
 
   return {
     id: text(value.id, text(value.eesNumber)),
@@ -136,7 +147,8 @@ function mapReviewRecord(value: unknown): EESReviewRecord | null {
     submittedDate: formatDateTime(typeof createdAt === "string" ? createdAt : null),
     preparedBy: personName(sourceSb.createdBy),
     checkedBy: nullableText(value.checkedBy),
-    status: formatStatus(value.reviewStatus),
+    status,
+    hasApprovalAssignment,
     applicability: esn.length ? `ESN: ${esn.join(", ")}` : "—",
     affectedEngines: esn.length ? `${esn.length} engine(s)` : "—",
     dueCompliance: evaluations.map((item) => item.dueAt).find(Boolean) || "—",

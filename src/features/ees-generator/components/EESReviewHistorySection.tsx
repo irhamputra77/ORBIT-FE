@@ -35,6 +35,13 @@ function statusPresentation(status: string) {
   }
 }
 
+function recordStatusLabel(record: EESReviewRecord) {
+  if (record.workflowStep && record.workflowStepLabel) {
+    return `Step ${record.workflowStep} · ${record.workflowStepLabel}`;
+  }
+  return record.status;
+}
+
 export function EESReviewHistorySection({
   records,
   pagination,
@@ -137,7 +144,8 @@ export function EESReviewHistorySection({
                 </thead>
                 <tbody>
                   {records.map((record, index) => {
-                    const status = statusPresentation(record.status);
+                    const statusLabel = recordStatusLabel(record);
+                    const status = statusPresentation(statusLabel);
                     const StatusIcon = status.icon;
                     return (
                       <motion.tr
@@ -203,7 +211,7 @@ export function EESReviewHistorySection({
                         <td className="px-5 py-3.5">
                           <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${status.className}`}>
                             <StatusIcon size={11} />
-                            {record.status}
+                            {statusLabel}
                           </span>
                         </td>
                       </motion.tr>

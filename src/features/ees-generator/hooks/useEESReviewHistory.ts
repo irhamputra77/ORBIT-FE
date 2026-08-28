@@ -7,6 +7,10 @@ import {
   type EESHistoryPagination,
 } from "../services/ees-review-service";
 import type { EESReviewRecord } from "../types/review";
+import {
+  EES_WORKFLOW_STEP_LABELS,
+  getEesWorkflowProgress,
+} from "../services/workflow-progress";
 
 type UseEESReviewHistoryOptions = {
   enabled?: boolean;
@@ -37,7 +41,20 @@ export function useEESReviewHistory({
       setError(null);
       try {
         const result = await getEESReviewHistory(page, 20, controller.signal);
-        setRecords(result.records);
+        setRecords(result.records.map(record => {
+          const progress = getEesWorkflowProgress(record.id);
+          const shouldShowLocalProgress = progress
+            && progress.step < 5
+            && !record.hasApprovalAssignment
+            && !["Approved", "Rejected", "Returned"].includes(record.status);
+
+          if (!shouldShowLocalProgress) return record;
+          return {
+            ...record,
+            workflowStep: progress.step,
+            workflowStepLabel: EES_WORKFLOW_STEP_LABELS[progress.step],
+          };
+        }));
         setPagination(result.pagination);
       } catch (caughtError) {
         if (!axios.isCancel(caughtError)) {

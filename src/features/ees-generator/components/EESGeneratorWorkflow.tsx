@@ -103,6 +103,7 @@ import {
 } from "../services/approval-service";
 import { isCategoryManual } from "../services/category-service";
 import { createValidatedEesPayload } from "../services/ees-payload";
+import { saveEesWorkflowProgress } from "../services/workflow-progress";
 import {
   CITILINK_ACCOMPLISHMENT_METHODS,
   CITILINK_COMPONENT_TYPES,
@@ -455,8 +456,34 @@ function toWorkflowServiceBulletin(sb: ServiceBulletinViewModel): DBServiceBulle
 
 function getComplianceCategory(sb?: DBServiceBulletin | null) {
   if (!sb) return 0;
-  if (typeof sb.complianceCategory === "number") return sb.complianceCategory;
-  return sb.sbCategory ?? 0;
+  if (
+    typeof sb.complianceCategory === "number"
+    && Number.isFinite(sb.complianceCategory)
+    && sb.complianceCategory > 0
+  ) {
+    return sb.complianceCategory;
+  }
+  if (
+    typeof sb.sbCategory === "number"
+    && Number.isFinite(sb.sbCategory)
+    && sb.sbCategory > 0
+  ) {
+    return sb.sbCategory;
+  }
+  return 0;
+}
+
+function getAiConfidence(sb?: DBServiceBulletin | null) {
+  if (
+    !sb
+    || typeof sb.aiConfidence !== "number"
+    || !Number.isFinite(sb.aiConfidence)
+    || sb.aiConfidence < 0
+    || sb.aiConfidence > 100
+  ) {
+    return null;
+  }
+  return sb.aiConfidence;
 }
 
 function isGeneratedServiceBulletin(sb: DBServiceBulletin) {
@@ -2544,9 +2571,11 @@ function Step2SelectCategory({
     description: "",
     severity: "info" as const,
   };
-  const aiConfidence = sb?.aiConfidence ?? null;
+  const aiConfidence = getAiConfidence(sb);
+  const hasComplianceCategory = complianceCategory > 0;
+  const hasAiConfidence = aiConfidence !== null;
   const assignedCategory = isGEMode ? geCategory.level : aiCategory;
-  const lacksAiClassification = complianceCategory === 0 && aiConfidence === null;
+  const lacksAiClassification = !hasComplianceCategory || !hasAiConfidence;
   const requiresManualEES = lacksAiClassification || isCategoryManual(assignedCategory);
   const hasExtractedAI = sb?.ocrStatus === "EXTRACTED" && Boolean(complianceCategory);
   const extractedRemarks = (sb?.extractedItems || [])
@@ -3032,11 +3061,15 @@ function Step2SelectCategory({
         <div className="mb-3 grid grid-cols-3 gap-3">
           <div>
             <div className="mb-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">Category</div>
-            <div className="text-sm font-bold text-foreground">Unavailable</div>
+            <div className="text-sm font-bold text-foreground">
+              {hasComplianceCategory ? aiCategory : "Unavailable"}
+            </div>
           </div>
           <div>
             <div className="mb-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">AI Confidence</div>
-            <div className="text-sm font-bold text-foreground">Unavailable</div>
+            <div className="text-sm font-bold text-foreground">
+              {hasAiConfidence ? `${aiConfidence}%` : "Unavailable"}
+            </div>
           </div>
           <div>
             <div className="mb-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">Input Mode</div>
@@ -3044,7 +3077,7 @@ function Step2SelectCategory({
           </div>
         </div>
         <div className="rounded-lg border border-amber-500/20 bg-background/65 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
-          The backend did not provide a compliance category or AI confidence score. Select an EES template, then complete all required fields manually.
+          The backend did not provide a complete AI classification (compliance category and confidence score are both required). Select an EES template, then complete all required fields manually.
         </div>
       </div>
       ) : isGEMode ? (
@@ -5052,6 +5085,38 @@ function EESGeneratorWorkflowContent() {
   } = useEESGeneratorWorkflow<any>();
 
   const selectedSB = stepData.step1?.selectedSB ?? null;
+  const retryEesReviewHistory = eesReviewHistory.retry;
+  const previousStepRef = useRef(currentStep);
+
+  useEffect(() => {
+    const generatedDocument = stepData.step1?.generatedEesDocument
+      ?? stepData.ees?.generatedEesDocument
+      ?? stepData.generatedEes;
+    const eesId = String(
+      generatedDocument?.id
+      ?? stepData.step1?.selectedSB?.generatedEesId
+      ?? stepData.ees?.selectedSB?.generatedEesId
+      ?? "",
+    ).trim();
+    const sourceSbId = String(
+      generatedDocument?.sourceSbId
+      ?? stepData.step1?.selectedSB?.backendId
+      ?? stepData.ees?.selectedSB?.backendId
+      ?? "",
+    ).trim();
+
+    if (eesId) {
+      saveEesWorkflowProgress({ eesId, sourceSbId, step: currentStep });
+    }
+  }, [currentStep, stepData]);
+
+  useEffect(() => {
+    const previousStep = previousStepRef.current;
+    previousStepRef.current = currentStep;
+    if (currentStep === 1 && previousStep > 1) {
+      retryEesReviewHistory();
+    }
+  }, [currentStep, retryEesReviewHistory]);
 
   // ── Main workflow view — persistent 3-panel layout ──
   return (

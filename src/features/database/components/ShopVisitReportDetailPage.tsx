@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { toast } from "sonner";
 import {
   AlertCircle,
   ArrowLeft,
@@ -12,6 +13,7 @@ import {
   Download,
   ExternalLink,
   FileClock,
+  FileSpreadsheet,
   FileText,
   Gauge,
   GitCompareArrows,
@@ -25,6 +27,7 @@ import {
 import { formatDateTime } from "@/lib/date-time";
 import { useShopVisitReportDetail } from "../hooks/useShopVisitReportDetail";
 import {
+  exportShopVisitReportExcel,
   getShopVisitReportDownloadUrl,
   getShopVisitReportPreviewUrl,
 } from "../services/shopVisitReportApi";
@@ -233,6 +236,7 @@ function paginatedItems<T>(items: T[], page: number) {
 
 export function ShopVisitReportDetailPage({ id }: { id: string }) {
   const detail = useShopVisitReportDetail(id);
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [activeTechnicalTab, setActiveTechnicalTab] =
     useState<TechnicalRecordTab>("compliance");
   const [technicalPages, setTechnicalPages] = useState<
@@ -286,6 +290,23 @@ export function ShopVisitReportDetailPage({ id }: { id: string }) {
   }
 
   const report = detail.report;
+  const handleExportExcel = async () => {
+    if (isExportingExcel) return;
+
+    setIsExportingExcel(true);
+    try {
+      await exportShopVisitReportExcel(report.id, report.engineSerialNumber);
+      toast.success("Data SVR berhasil diekspor ke Excel.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Data SVR gagal diekspor ke Excel.",
+      );
+    } finally {
+      setIsExportingExcel(false);
+    }
+  };
   const configuration = report.configurationReport ?? [];
   const llpStatus = report.llpStatus ?? [];
   const svrSbStatus = report.sbStatus ?? [];
@@ -415,26 +436,42 @@ export function ShopVisitReportDetailPage({ id }: { id: string }) {
               SB/AD compliance recorded for this unit.
             </p>
           </div>
-          {hasPdf && (
-            <div className="flex flex-wrap gap-2">
-              <a
-                href={previewUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-semibold text-blue-700 hover:bg-blue-100"
-              >
-                <ExternalLink size={16} />
-                Open PDF
-              </a>
-              <a
-                href={downloadUrl}
-                className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800"
-              >
-                <Download size={16} />
-                Download PDF
-              </a>
-            </div>
-          )}
+          <div className="flex flex-wrap gap-2">
+            {hasPdf && (
+              <>
+                <a
+                  href={previewUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-semibold text-blue-700 hover:bg-blue-100"
+                >
+                  <ExternalLink size={16} />
+                  Open PDF
+                </a>
+                <a
+                  href={downloadUrl}
+                  className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-800"
+                >
+                  <Download size={16} />
+                  Download PDF
+                </a>
+              </>
+            )}
+            <button
+              type="button"
+              onClick={() => void handleExportExcel()}
+              disabled={isExportingExcel}
+              aria-busy={isExportingExcel}
+              className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-emerald-800 disabled:cursor-wait disabled:opacity-70"
+            >
+              {isExportingExcel ? (
+                <Loader2 className="animate-spin" size={16} />
+              ) : (
+                <FileSpreadsheet size={16} />
+              )}
+              {isExportingExcel ? "Exporting..." : "Export Excel"}
+            </button>
+          </div>
         </div>
       </header>
 

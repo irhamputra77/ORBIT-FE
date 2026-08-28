@@ -40,6 +40,9 @@ export interface EESReviewRecord {
   preparedBy: string;
   checkedBy: string | null;
   status: string;
+  workflowStep?: 1 | 2 | 3 | 4 | 5;
+  workflowStepLabel?: string;
+  hasApprovalAssignment: boolean;
   applicability: string;
   affectedEngines: string;
   dueCompliance: string;
