@@ -19,6 +19,20 @@ export interface UserMutationResponse {
   data?: ManagedUser;
 }
 
+export interface UserDetailResponse {
+  data: ManagedUser;
+}
+
+export interface UserStatusResponse {
+  message?: string;
+  data?: Pick<ManagedUser, "id" | "active">;
+}
+
+export interface ResetPasswordResponse {
+  message?: string;
+  data?: Pick<ManagedUser, "id" | "email" | "username" | "role" | "active">;
+}
+
 export interface UserListParams {
   page?: number;
   limit?: number;
@@ -40,4 +54,4 @@ export interface UserFormValues {
 }
 
 export type CreateUserPayload = UserFormValues;
-export type UpdateUserPayload = Omit<UserFormValues, "password">;
+export type UpdateUserPayload = Partial<Omit<UserFormValues, "password">>;

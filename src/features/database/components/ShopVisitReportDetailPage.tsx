@@ -21,8 +21,10 @@ import {
   Package,
   Plane,
   RefreshCw,
+  Search,
   ShieldCheck,
   Wrench,
+  X,
 } from "lucide-react";
 import { formatDateTime } from "@/lib/date-time";
 import { useShopVisitReportDetail } from "../hooks/useShopVisitReportDetail";
@@ -32,6 +34,7 @@ import {
   getShopVisitReportPreviewUrl,
 } from "../services/shopVisitReportApi";
 import { DatabaseExcelExportError } from "../services/databaseExcelExport";
+import { matchesRecordSearch } from "../utils/recordSearch";
 
 function text(value: unknown, fallback = "—") {
   if (value === null || value === undefined || value === "") return fallback;
@@ -240,6 +243,7 @@ export function ShopVisitReportDetailPage({ id }: { id: string }) {
   const [isExportingExcel, setIsExportingExcel] = useState(false);
   const [activeTechnicalTab, setActiveTechnicalTab] =
     useState<TechnicalRecordTab>("compliance");
+  const [recordSearch, setRecordSearch] = useState("");
   const [technicalPages, setTechnicalPages] = useState<
     Record<TechnicalRecordTab, number>
   >({
@@ -320,12 +324,30 @@ export function ShopVisitReportDetailPage({ id }: { id: string }) {
   const adStatus = report.adStatus ?? [];
   const accessories = report.accessoriesList ?? [];
   const complianceRecords = report.complianceRecords ?? [];
+  const filteredConfiguration = configuration.filter(item =>
+    matchesRecordSearch(item, recordSearch),
+  );
+  const filteredLlpStatus = llpStatus.filter(item =>
+    matchesRecordSearch(item, recordSearch),
+  );
+  const filteredSvrSbStatus = svrSbStatus.filter(item =>
+    matchesRecordSearch(item, recordSearch),
+  );
+  const filteredAdStatus = adStatus.filter(item =>
+    matchesRecordSearch(item, recordSearch),
+  );
+  const filteredAccessories = accessories.filter(item =>
+    matchesRecordSearch(item, recordSearch),
+  );
+  const filteredComplianceRecords = complianceRecords.filter(item =>
+    matchesRecordSearch(item, recordSearch),
+  );
   const activePage = technicalPages[activeTechnicalTab];
-  const paginatedSbStatus = paginatedItems(svrSbStatus, activePage);
-  const paginatedConfiguration = paginatedItems(configuration, activePage);
-  const paginatedLlpStatus = paginatedItems(llpStatus, activePage);
-  const paginatedAdStatus = paginatedItems(adStatus, activePage);
-  const paginatedAccessories = paginatedItems(accessories, activePage);
+  const paginatedSbStatus = paginatedItems(filteredSvrSbStatus, activePage);
+  const paginatedConfiguration = paginatedItems(filteredConfiguration, activePage);
+  const paginatedLlpStatus = paginatedItems(filteredLlpStatus, activePage);
+  const paginatedAdStatus = paginatedItems(filteredAdStatus, activePage);
+  const paginatedAccessories = paginatedItems(filteredAccessories, activePage);
   const technicalTabs: Array<{
     key: TechnicalRecordTab;
     label: string;
@@ -335,31 +357,31 @@ export function ShopVisitReportDetailPage({ id }: { id: string }) {
     {
       key: "compliance",
       label: "SB Compliance",
-      count: svrSbStatus.length,
+      count: filteredSvrSbStatus.length,
       icon: CheckCircle2,
     },
     {
       key: "configuration",
       label: "Configuration",
-      count: configuration.length,
+      count: filteredConfiguration.length,
       icon: GitCompareArrows,
     },
     {
       key: "llp",
       label: "LLP Status",
-      count: llpStatus.length,
+      count: filteredLlpStatus.length,
       icon: Gauge,
     },
     {
       key: "ad",
       label: "AD Status",
-      count: adStatus.length,
+      count: filteredAdStatus.length,
       icon: ShieldCheck,
     },
     {
       key: "accessories",
       label: "Accessories",
-      count: accessories.length,
+      count: filteredAccessories.length,
       icon: Package,
     },
   ];
@@ -368,6 +390,16 @@ export function ShopVisitReportDetailPage({ id }: { id: string }) {
       ...current,
       [activeTechnicalTab]: page,
     }));
+  };
+  const updateRecordSearch = (value: string) => {
+    setRecordSearch(value);
+    setTechnicalPages({
+      compliance: 1,
+      configuration: 1,
+      llp: 1,
+      ad: 1,
+      accessories: 1,
+    });
   };
   const hasPdf = Boolean(
     report.storedFileName
@@ -562,14 +594,39 @@ export function ShopVisitReportDetailPage({ id }: { id: string }) {
 
           <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
             <div className="border-b border-border px-5 py-4">
-              <div className="flex items-center gap-2">
-                <Wrench size={18} className="text-blue-700" />
-                <h2 className="font-semibold text-foreground">SVR Technical Records</h2>
+              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <Wrench size={18} className="text-blue-700" />
+                    <h2 className="font-semibold text-foreground">SVR Technical Records</h2>
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                    Riwayat compliance, perubahan konfigurasi APU/engine, LLP, AD, dan
+                    accessories ditampilkan dalam satu panel.
+                  </p>
+                </div>
+                <div className="relative w-full lg:max-w-sm">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={15} />
+                  <input
+                    type="search"
+                    value={recordSearch}
+                    onChange={event => updateRecordSearch(event.target.value)}
+                    placeholder="Cari seluruh technical record..."
+                    aria-label="Cari SVR technical record"
+                    className="h-10 w-full rounded-xl border border-border bg-background pl-9 pr-9 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                  />
+                  {recordSearch && (
+                    <button
+                      type="button"
+                      onClick={() => updateRecordSearch("")}
+                      aria-label="Hapus pencarian"
+                      className="absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
               </div>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                Riwayat compliance, perubahan konfigurasi APU/engine, LLP, AD, dan
-                accessories ditampilkan dalam satu panel.
-              </p>
             </div>
 
             <div
@@ -612,11 +669,11 @@ export function ShopVisitReportDetailPage({ id }: { id: string }) {
             <div className="p-5" role="tabpanel">
               {activeTechnicalTab === "compliance" && (
                 <div>
-                  {complianceRecords.length ? (
+                  {filteredComplianceRecords.length ? (
                     <div className={`grid gap-3 ${
-                      complianceRecords.length > 1 ? "md:grid-cols-2" : "grid-cols-1"
+                      filteredComplianceRecords.length > 1 ? "md:grid-cols-2" : "grid-cols-1"
                     }`}>
-                      {complianceRecords.map((record, index) => {
+                      {filteredComplianceRecords.map((record, index) => {
                         const content = (
                           <div className="h-full rounded-xl border border-border bg-muted/25 p-4 transition-colors hover:bg-muted/50">
                             <div className="flex items-start justify-between gap-3">
@@ -662,14 +719,15 @@ export function ShopVisitReportDetailPage({ id }: { id: string }) {
                     </div>
                   ) : (
                     <EmptyState>
-                      Belum ada normalized compliance record yang menghubungkan
-                      SVR ini dengan Service Bulletin atau Airworthiness Directive.
+                      {recordSearch
+                        ? `Tidak ada compliance record yang cocok dengan “${recordSearch.trim()}”.`
+                        : "Belum ada normalized compliance record yang menghubungkan SVR ini dengan Service Bulletin atau Airworthiness Directive."}
                     </EmptyState>
                   )}
 
                   <div className="mt-5">
                     <h3 className="mb-2 text-xs font-semibold text-foreground">SVR SB Status Rows</h3>
-                    {svrSbStatus.length ? (
+                    {filteredSvrSbStatus.length ? (
                       <DataTable
                         headers={["SB Number", "Compliance Date", "Method", "Module", "Category", "Remarks"]}
                         rows={paginatedSbStatus.map(item => [
@@ -682,11 +740,11 @@ export function ShopVisitReportDetailPage({ id }: { id: string }) {
                         ])}
                       />
                     ) : (
-                      <EmptyState>SB status rows tidak tersedia pada dokumen SVR ini.</EmptyState>
+                      <EmptyState>{recordSearch ? `Tidak ada SB status yang cocok dengan “${recordSearch.trim()}”.` : "SB status rows tidak tersedia pada dokumen SVR ini."}</EmptyState>
                     )}
                     <Pagination
                       page={activePage}
-                      total={svrSbStatus.length}
+                      total={filteredSvrSbStatus.length}
                       onPageChange={updateTechnicalPage}
                     />
                   </div>
@@ -695,7 +753,7 @@ export function ShopVisitReportDetailPage({ id }: { id: string }) {
 
               {activeTechnicalTab === "configuration" && (
                 <div>
-                  {configuration.length ? (
+                  {filteredConfiguration.length ? (
                     <DataTable
                       headers={["Module", "Part Name", "P/N", "Serial", "Action", "Qty", "TSN / CSN", "Work Accomplished"]}
                       rows={paginatedConfiguration.map(item => [
@@ -715,11 +773,11 @@ export function ShopVisitReportDetailPage({ id }: { id: string }) {
                       ])}
                     />
                   ) : (
-                    <EmptyState>Configuration report tidak tersedia.</EmptyState>
+                    <EmptyState>{recordSearch ? `Tidak ada configuration record yang cocok dengan “${recordSearch.trim()}”.` : "Configuration report tidak tersedia."}</EmptyState>
                   )}
                   <Pagination
                     page={activePage}
-                    total={configuration.length}
+                    total={filteredConfiguration.length}
                     onPageChange={updateTechnicalPage}
                   />
                 </div>
@@ -727,7 +785,7 @@ export function ShopVisitReportDetailPage({ id }: { id: string }) {
 
               {activeTechnicalTab === "llp" && (
                 <div>
-                  {llpStatus.length ? (
+                  {filteredLlpStatus.length ? (
                     <DataTable
                       headers={["No.", "Description", "P/N", "Serial", "Total Hour", "Total Cycle", "Life Limit", "Remaining", "Remark"]}
                       rows={paginatedLlpStatus.map(item => [
@@ -743,11 +801,11 @@ export function ShopVisitReportDetailPage({ id }: { id: string }) {
                       ])}
                     />
                   ) : (
-                    <EmptyState>LLP status tidak tersedia.</EmptyState>
+                    <EmptyState>{recordSearch ? `Tidak ada LLP record yang cocok dengan “${recordSearch.trim()}”.` : "LLP status tidak tersedia."}</EmptyState>
                   )}
                   <Pagination
                     page={activePage}
-                    total={llpStatus.length}
+                    total={filteredLlpStatus.length}
                     onPageChange={updateTechnicalPage}
                   />
                 </div>
@@ -755,7 +813,7 @@ export function ShopVisitReportDetailPage({ id }: { id: string }) {
 
               {activeTechnicalTab === "ad" && (
                 <div>
-                  {adStatus.length ? (
+                  {filteredAdStatus.length ? (
                     <DataTable
                       headers={["AD Number", "Compliance Date", "Description", "Method", "Reference SB", "Recurrent Inspection", "Remarks"]}
                       rows={paginatedAdStatus.map(item => [
@@ -769,11 +827,11 @@ export function ShopVisitReportDetailPage({ id }: { id: string }) {
                       ])}
                     />
                   ) : (
-                    <EmptyState>Tidak ada AD status pada SVR ini.</EmptyState>
+                    <EmptyState>{recordSearch ? `Tidak ada AD record yang cocok dengan “${recordSearch.trim()}”.` : "Tidak ada AD status pada SVR ini."}</EmptyState>
                   )}
                   <Pagination
                     page={activePage}
-                    total={adStatus.length}
+                    total={filteredAdStatus.length}
                     onPageChange={updateTechnicalPage}
                   />
                 </div>
@@ -781,7 +839,7 @@ export function ShopVisitReportDetailPage({ id }: { id: string }) {
 
               {activeTechnicalTab === "accessories" && (
                 <div>
-                  {accessories.length ? (
+                  {filteredAccessories.length ? (
                     <DataTable
                       minWidthClass="min-w-[1680px]"
                       headers={[
@@ -814,11 +872,11 @@ export function ShopVisitReportDetailPage({ id }: { id: string }) {
                       ])}
                     />
                   ) : (
-                    <EmptyState>Accessories list tidak tersedia.</EmptyState>
+                    <EmptyState>{recordSearch ? `Tidak ada accessories record yang cocok dengan “${recordSearch.trim()}”.` : "Accessories list tidak tersedia."}</EmptyState>
                   )}
                   <Pagination
                     page={activePage}
-                    total={accessories.length}
+                    total={filteredAccessories.length}
                     onPageChange={updateTechnicalPage}
                   />
                 </div>

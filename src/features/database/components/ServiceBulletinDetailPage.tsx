@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useState } from "react";
 import {
   AlertCircle,
   ArrowLeft,
@@ -13,7 +14,9 @@ import {
   GitBranch,
   Loader2,
   RefreshCw,
+  Search,
   UserRound,
+  X,
 } from "lucide-react";
 import { formatDateTime } from "@/lib/date-time";
 import {
@@ -25,6 +28,7 @@ import {
   useServiceBulletinRelations,
 } from "@/features/service-bulletins";
 import { useServiceBulletinDetail } from "../hooks/useServiceBulletinDetail";
+import { matchesRecordSearch } from "../utils/recordSearch";
 import { SBRelationshipDiagram } from "./SBRelationshipDiagram";
 
 function formatStatus(value: string | null) {
@@ -138,6 +142,7 @@ function ReviewTimeline({
 export function ServiceBulletinDetailPage({ id }: { id: string }) {
   const detail = useServiceBulletinDetail(id);
   const relationQuery = useServiceBulletinRelations(id);
+  const [recordSearch, setRecordSearch] = useState("");
 
   if (detail.isLoading) {
     return (
@@ -172,6 +177,9 @@ export function ServiceBulletinDetailPage({ id }: { id: string }) {
     || (isCitilink ? "citilink" : "garuda");
   const categorySupportsExtraction = (sb.category ?? 0) >= 4;
   const sourceIsUser = sb.inputSource === "USER_UPLOAD";
+  const filteredExtractedItems = sb.extractedItems.filter(item =>
+    matchesRecordSearch(item, recordSearch),
+  );
 
   return (
     <div className="mx-auto max-w-[1500px] space-y-6 p-6">
@@ -207,13 +215,41 @@ export function ServiceBulletinDetailPage({ id }: { id: string }) {
 
           {categorySupportsExtraction && (
             <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-              <div className="mb-4 flex items-center gap-2"><FileCheck2 className="text-cyan-600" size={18} /><h2 className="font-semibold text-foreground">Extracted SB Information</h2></div>
+              <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <div className="flex items-center gap-2"><FileCheck2 className="text-cyan-600" size={18} /><h2 className="font-semibold text-foreground">Extracted SB Information</h2></div>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {filteredExtractedItems.length} dari {sb.extractedItems.length} record
+                  </p>
+                </div>
+                <div className="relative w-full sm:max-w-sm">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={15} />
+                  <input
+                    type="search"
+                    value={recordSearch}
+                    onChange={event => setRecordSearch(event.target.value)}
+                    placeholder="Cari paragraph, requirement, task..."
+                    aria-label="Cari extracted SB record"
+                    className="h-10 w-full rounded-xl border border-border bg-background pl-9 pr-9 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20"
+                  />
+                  {recordSearch && (
+                    <button
+                      type="button"
+                      onClick={() => setRecordSearch("")}
+                      aria-label="Hapus pencarian"
+                      className="absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"
+                    >
+                      <X size={14} />
+                    </button>
+                  )}
+                </div>
+              </div>
               {sb.extractedItems.length ? (
-                <div className="overflow-x-auto rounded-xl border border-border">
+                filteredExtractedItems.length ? <div className="overflow-x-auto rounded-xl border border-border">
                   <table className="w-full min-w-[680px] text-left text-xs">
                     <thead className="bg-muted text-[10px] uppercase tracking-wider text-muted-foreground"><tr><th className="px-3 py-2.5">Item</th><th className="px-3 py-2.5">Paragraph</th><th className="px-3 py-2.5">Requirement</th><th className="px-3 py-2.5">Remarks</th><th className="px-3 py-2.5">Task</th></tr></thead>
                     <tbody>
-                      {sb.extractedItems.map((item, index) => (
+                      {filteredExtractedItems.map((item, index) => (
                         <tr key={`${item.itemNo}-${index}`} className="border-t border-border align-top">
                           <td className="px-3 py-3 font-semibold">{item.itemNo || index + 1}</td>
                           <td className="px-3 py-3">{item.paragraph || "—"}</td>
@@ -224,7 +260,11 @@ export function ServiceBulletinDetailPage({ id }: { id: string }) {
                       ))}
                     </tbody>
                   </table>
-                </div>
+                </div> : (
+                  <p className="rounded-xl border border-dashed border-border bg-muted/30 p-5 text-sm text-muted-foreground">
+                    Tidak ada extracted record yang cocok dengan “{recordSearch.trim()}”.
+                  </p>
+                )
               ) : (
                 <p className="rounded-xl border border-dashed border-border bg-muted/30 p-5 text-sm text-muted-foreground">Kategori SB memenuhi aturan extraction, tetapi payload API belum menyediakan item hasil extraction.</p>
               )}

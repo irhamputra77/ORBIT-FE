@@ -9,8 +9,10 @@ import {
   CircleCheck,
   CircleX,
   Edit3,
+  KeyRound,
   LoaderCircle,
   Plus,
+  Power,
   RefreshCw,
   Search,
   ShieldCheck,
@@ -45,8 +47,11 @@ import { useCurrentUserProfile, type UserRole } from "@/features/user-profile";
 import {
   createUser,
   deleteUser,
+  getUser,
   getUsers,
+  resetUserPassword,
   updateUser,
+  updateUserStatus,
   userToFormValues,
 } from "../services/userManagementApi";
 import type { ManagedUser, UserFormValues, UserListMeta } from "../types";
@@ -69,9 +74,6 @@ type FormErrors = Partial<Record<keyof UserFormValues, string>>;
 
 function apiMessage(error: unknown, fallback: string) {
   if (axios.isAxiosError<{ message?: string; error?: string }>(error)) {
-    if (error.response?.status === 404 || error.response?.status === 405) {
-      return "Endpoint CRUD user belum tersedia pada backend. Hubungi tim backend untuk mengaktifkan POST/PATCH/DELETE /api/users.";
-    }
     return error.response?.data.message ?? error.response?.data.error ?? fallback;
   }
   return fallback;
@@ -131,6 +133,7 @@ export default function UserManagementPage() {
   const [meta, setMeta] = useState<UserListMeta>(emptyMeta);
   const [page, setPage] = useState(1);
   const [role, setRole] = useState<UserRole | "ALL">("ALL");
+  const [operatorId, setOperatorId] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
   const [isLoading, setIsLoading] = useState(true);
@@ -141,6 +144,14 @@ export default function UserManagementPage() {
   const [form, setForm] = useState<UserFormValues>(emptyForm);
   const [formErrors, setFormErrors] = useState<FormErrors>({});
   const [isSaving, setIsSaving] = useState(false);
+  const [isLoadingUserDetail, setIsLoadingUserDetail] = useState(false);
+  const [statusTarget, setStatusTarget] = useState<ManagedUser | null>(null);
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const [resetTarget, setResetTarget] = useState<ManagedUser | null>(null);
+  const [resetPassword, setResetPassword] = useState("");
+  const [resetPasswordConfirmation, setResetPasswordConfirmation] = useState("");
+  const [resetPasswordError, setResetPasswordError] = useState<string | null>(null);
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ManagedUser | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -159,7 +170,7 @@ export default function UserManagementPage() {
     setIsLoading(true);
     setListError(null);
     try {
-      const response = await getUsers({ page, limit: 20, role, search }, signal);
+      const response = await getUsers({ page, limit: 20, role, operatorId, search }, signal);
       setUsers(Array.isArray(response.data) ? response.data : []);
       setMeta(response.meta ?? emptyMeta);
     } catch (error) {
@@ -170,7 +181,7 @@ export default function UserManagementPage() {
     } finally {
       if (!signal?.aborted) setIsLoading(false);
     }
-  }, [isAdmin, page, role, search]);
+  }, [isAdmin, operatorId, page, role, search]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -195,11 +206,21 @@ export default function UserManagementPage() {
     setDialogOpen(true);
   }
 
-  function openEditDialog(user: ManagedUser) {
+  async function openEditDialog(user: ManagedUser) {
     setEditingUser(user);
     setForm({ ...userToFormValues(user), password: "" });
     setFormErrors({});
     setDialogOpen(true);
+    setIsLoadingUserDetail(true);
+    try {
+      const latestUser = await getUser(user.id);
+      setEditingUser(latestUser);
+      setForm({ ...userToFormValues(latestUser), password: "" });
+    } catch (error) {
+      toast.error(apiMessage(error, "Detail user terbaru tidak dapat dimuat."));
+    } finally {
+      setIsLoadingUserDetail(false);
+    }
   }
 
   function updateField<K extends keyof UserFormValues>(key: K, value: UserFormValues[K]) {
@@ -219,14 +240,15 @@ export default function UserManagementPage() {
     try {
       if (editingUser) {
         const payload = {
-          employeeNumber: form.employeeNumber,
+          ...(form.employeeNumber.trim()
+            ? { employeeNumber: form.employeeNumber.trim() }
+            : {}),
           name: form.name,
           email: form.email,
           username: form.username,
           role: form.role,
           operatorId: form.operatorId,
           unit: form.unit,
-          active: form.active,
         };
         await updateUser(editingUser.id, payload);
         toast.success("Data user berhasil diperbarui.");
@@ -240,6 +262,59 @@ export default function UserManagementPage() {
       toast.error(apiMessage(error, editingUser ? "User gagal diperbarui." : "User gagal dibuat."));
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function handleStatusChange() {
+    if (!statusTarget || statusTarget.id === profileQuery.data?.id) return;
+
+    setIsUpdatingStatus(true);
+    try {
+      await updateUserStatus(statusTarget.id, !statusTarget.active);
+      toast.success(
+        statusTarget.active
+          ? "User berhasil dinonaktifkan."
+          : "User berhasil diaktifkan.",
+      );
+      setStatusTarget(null);
+      setReloadVersion((version) => version + 1);
+    } catch (error) {
+      toast.error(apiMessage(error, "Status user gagal diperbarui."));
+    } finally {
+      setIsUpdatingStatus(false);
+    }
+  }
+
+  function openResetPasswordDialog(user: ManagedUser) {
+    setResetTarget(user);
+    setResetPassword("");
+    setResetPasswordConfirmation("");
+    setResetPasswordError(null);
+  }
+
+  async function handleResetPassword() {
+    if (!resetTarget) return;
+    if (resetPassword.length < 8) {
+      setResetPasswordError("Password baru minimal 8 karakter.");
+      return;
+    }
+    if (resetPassword !== resetPasswordConfirmation) {
+      setResetPasswordError("Konfirmasi password tidak sama.");
+      return;
+    }
+
+    setIsResettingPassword(true);
+    setResetPasswordError(null);
+    try {
+      await resetUserPassword(resetTarget.id, resetPassword);
+      toast.success("Password user berhasil direset.");
+      setResetTarget(null);
+      setResetPassword("");
+      setResetPasswordConfirmation("");
+    } catch (error) {
+      setResetPasswordError(apiMessage(error, "Password user gagal direset."));
+    } finally {
+      setIsResettingPassword(false);
     }
   }
 
@@ -332,7 +407,7 @@ export default function UserManagementPage() {
               <input
                 value={searchInput}
                 onChange={(event) => setSearchInput(event.target.value)}
-                placeholder="Cari nama, email, username, atau employee no."
+                placeholder="Cari nama, email, atau employee no."
                 className="h-10 w-full rounded-xl border border-border bg-background pl-9 pr-3 text-xs outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/15"
               />
             </label>
@@ -347,6 +422,16 @@ export default function UserManagementPage() {
               <option value="ALL">All roles</option>
               {roles.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
+            <input
+              value={operatorId}
+              onChange={(event) => {
+                setOperatorId(event.target.value);
+                setPage(1);
+              }}
+              placeholder="Filter Operator ID"
+              aria-label="Filter berdasarkan operator ID"
+              className="h-10 min-w-[180px] rounded-xl border border-border bg-background px-3 text-xs text-foreground outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-500/15"
+            />
           </div>
           <button
             type="button"
@@ -369,7 +454,7 @@ export default function UserManagementPage() {
         )}
 
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1020px] text-left text-xs">
+          <table className="w-full min-w-[1240px] text-left text-xs">
             <thead className="bg-muted/70 text-[9px] uppercase tracking-[0.1em] text-muted-foreground">
               <tr>
                 <th className="px-5 py-3 font-semibold">User</th>
@@ -420,7 +505,17 @@ export default function UserManagementPage() {
                     <td className="px-4 py-3.5 text-[10px] text-muted-foreground">{formatDateTime(user.createdAt)}</td>
                     <td className="px-5 py-3.5">
                       <div className="flex justify-end gap-2">
-                        <button type="button" onClick={() => openEditDialog(user)} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-blue-600/30 px-2.5 text-[10px] font-semibold text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/20"><Edit3 size={12} /> Edit</button>
+                        <button type="button" onClick={() => void openEditDialog(user)} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-blue-600/30 px-2.5 text-[10px] font-semibold text-blue-700 hover:bg-blue-50 dark:hover:bg-blue-950/20"><Edit3 size={12} /> Edit</button>
+                        <button type="button" onClick={() => openResetPasswordDialog(user)} className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-violet-600/30 px-2.5 text-[10px] font-semibold text-violet-700 hover:bg-violet-50 dark:hover:bg-violet-950/20"><KeyRound size={12} /> Reset</button>
+                        <button
+                          type="button"
+                          onClick={() => setStatusTarget(user)}
+                          disabled={isCurrentUser}
+                          title={isCurrentUser ? "Status akun yang sedang digunakan tidak dapat diubah." : user.active ? "Nonaktifkan user" : "Aktifkan user"}
+                          className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[10px] font-semibold disabled:cursor-not-allowed disabled:opacity-35 ${user.active ? "border-amber-600/30 text-amber-700 hover:bg-amber-50 dark:hover:bg-amber-950/20" : "border-emerald-600/30 text-emerald-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/20"}`}
+                        >
+                          <Power size={12} /> {user.active ? "Deactivate" : "Activate"}
+                        </button>
                         <button
                           type="button"
                           onClick={() => setDeleteTarget(user)}
@@ -456,6 +551,11 @@ export default function UserManagementPage() {
               {editingUser ? "Perbarui metadata dan hak akses user." : "Buat akun baru yang dapat mengakses ORBIT."}
             </DialogDescription>
           </DialogHeader>
+          {isLoadingUserDetail && (
+            <div className="flex items-center gap-2 rounded-xl border border-blue-500/30 bg-blue-500/10 px-3 py-2 text-xs text-blue-700">
+              <LoaderCircle size={14} className="animate-spin" /> Memuat detail user terbaru...
+            </div>
+          )}
           <div className="grid gap-4 py-2 sm:grid-cols-2">
             <FormField label="Full Name" error={formErrors.name} required>
               <input value={form.name} onChange={(event) => updateField("name", event.target.value)} className={inputClass(Boolean(formErrors.name))} placeholder="Nama lengkap" />
@@ -485,19 +585,95 @@ export default function UserManagementPage() {
             <FormField label="Unit" error={formErrors.unit}>
               <input value={form.unit} onChange={(event) => updateField("unit", event.target.value)} className={inputClass()} placeholder="Contoh: TEA-2" />
             </FormField>
-            <label className="flex min-h-10 items-center gap-3 rounded-xl border border-border px-3 sm:col-span-2">
-              <input type="checkbox" checked={form.active} onChange={(event) => updateField("active", event.target.checked)} className="h-4 w-4 accent-blue-700" />
-              <span className="text-xs font-semibold text-foreground">User account is active</span>
-            </label>
+            {!editingUser && (
+              <label className="flex min-h-10 items-center gap-3 rounded-xl border border-border px-3 sm:col-span-2">
+                <input type="checkbox" checked={form.active} onChange={(event) => updateField("active", event.target.checked)} className="h-4 w-4 accent-blue-700" />
+                <span className="text-xs font-semibold text-foreground">User account is active</span>
+              </label>
+            )}
           </div>
           <DialogFooter>
             <button type="button" onClick={() => setDialogOpen(false)} disabled={isSaving} className="h-10 rounded-xl border border-border px-4 text-xs font-semibold text-foreground hover:bg-muted disabled:opacity-50">Cancel</button>
-            <button type="button" onClick={handleSave} disabled={isSaving} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 text-xs font-semibold text-white hover:bg-blue-800 disabled:opacity-60">
+            <button type="button" onClick={handleSave} disabled={isSaving || isLoadingUserDetail} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-blue-700 px-4 text-xs font-semibold text-white hover:bg-blue-800 disabled:opacity-60">
               {isSaving && <LoaderCircle size={14} className="animate-spin" />}{editingUser ? "Save Changes" : "Create User"}
             </button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <Dialog
+        open={Boolean(resetTarget)}
+        onOpenChange={(open) => {
+          if (!open && !isResettingPassword) setResetTarget(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reset User Password</DialogTitle>
+            <DialogDescription>
+              Tetapkan password sementara baru untuk <strong>{resetTarget?.name || resetTarget?.username}</strong>. Password tidak akan ditampilkan kembali setelah disimpan.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <FormField label="New Password" required error={resetPasswordError ?? undefined}>
+              <input
+                type="password"
+                value={resetPassword}
+                onChange={(event) => {
+                  setResetPassword(event.target.value);
+                  setResetPasswordError(null);
+                }}
+                className={inputClass(Boolean(resetPasswordError))}
+                placeholder="Minimal 8 karakter"
+                autoComplete="new-password"
+              />
+            </FormField>
+            <FormField label="Confirm New Password" required>
+              <input
+                type="password"
+                value={resetPasswordConfirmation}
+                onChange={(event) => {
+                  setResetPasswordConfirmation(event.target.value);
+                  setResetPasswordError(null);
+                }}
+                className={inputClass(Boolean(resetPasswordError))}
+                placeholder="Ulangi password baru"
+                autoComplete="new-password"
+              />
+            </FormField>
+          </div>
+          <DialogFooter>
+            <button type="button" onClick={() => setResetTarget(null)} disabled={isResettingPassword} className="h-10 rounded-xl border border-border px-4 text-xs font-semibold text-foreground hover:bg-muted disabled:opacity-50">Cancel</button>
+            <button type="button" onClick={() => void handleResetPassword()} disabled={isResettingPassword} className="inline-flex h-10 items-center justify-center gap-2 rounded-xl bg-violet-700 px-4 text-xs font-semibold text-white hover:bg-violet-800 disabled:opacity-60">
+              {isResettingPassword && <LoaderCircle size={14} className="animate-spin" />} Reset Password
+            </button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={Boolean(statusTarget)} onOpenChange={(open) => !open && !isUpdatingStatus && setStatusTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{statusTarget?.active ? "Deactivate this user?" : "Activate this user?"}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {statusTarget?.active
+                ? `Akun ${statusTarget.name || statusTarget.username} tidak dapat menggunakan ORBIT setelah dinonaktifkan. Histori workflow tetap tersimpan.`
+                : `Akun ${statusTarget?.name || statusTarget?.username} akan mendapatkan akses kembali sesuai role yang dimiliki.`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isUpdatingStatus}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => { event.preventDefault(); void handleStatusChange(); }}
+              disabled={isUpdatingStatus}
+              className={statusTarget?.active ? "bg-amber-700 text-white hover:bg-amber-800" : "bg-emerald-700 text-white hover:bg-emerald-800"}
+            >
+              {isUpdatingStatus && <LoaderCircle size={14} className="animate-spin" />}
+              {statusTarget?.active ? "Deactivate User" : "Activate User"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && !isDeleting && setDeleteTarget(null)}>
         <AlertDialogContent>

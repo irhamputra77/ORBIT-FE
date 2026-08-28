@@ -60,7 +60,7 @@ export async function DELETE(_request: Request, context: RouteContext) {
     const response = await backendApi.delete(path, {
       headers: { Authorization: authorization },
     });
-    return apiJson(response.data ?? { message: "User berhasil dihapus." }, {
+    return apiJson({ message: "User berhasil dihapus." }, {
       status: response.status,
     });
   } catch (error) {

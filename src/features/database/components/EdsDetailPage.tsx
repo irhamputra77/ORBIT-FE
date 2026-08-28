@@ -4,12 +4,13 @@ import axios from "axios";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { AlertCircle, ArrowLeft, Download, ExternalLink, FileSpreadsheet, FileText, Loader2 } from "lucide-react";
+import { AlertCircle, ArrowLeft, Download, ExternalLink, FileSpreadsheet, FileText, Loader2, Search, X } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatDateTime } from "@/lib/date-time";
 import type { EdsDetail } from "../edsTypes";
 import { DatabaseExcelExportError } from "../services/databaseExcelExport";
 import { exportEdsExcel, getEdsDetail, getEdsDownloadUrl, getEdsPreviewUrl } from "../services/edsApi";
+import { matchesRecordSearch } from "../utils/recordSearch";
 
 const groups: Array<[string, keyof EdsDetail]> = [
   ["Configuration", "configurationReport"],
@@ -32,6 +33,7 @@ export function EdsDetailPage({ id }: { id: string }) {
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
   const [isExportingExcel, setIsExportingExcel] = useState(false);
+  const [recordSearch, setRecordSearch] = useState("");
   useEffect(() => {
     const controller = new AbortController();
     async function load() {
@@ -86,10 +88,22 @@ export function EdsDetailPage({ id }: { id: string }) {
         ["Aircraft", aircraft?.registration], ["Fleet", aircraft?.aircraftType], ["Operator", aircraft?.operator?.name],
       ].map(([label, value]) => <div key={String(label)} className="rounded-xl border border-border bg-card p-4"><p className="text-[10px] uppercase text-muted-foreground">{label}</p><p className="mt-2 break-words text-sm font-semibold">{value || "Not linked"}</p></div>)}</section>
       <section className="rounded-2xl border border-border bg-card p-5">
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="font-semibold text-foreground">EDS Records</h2>
+            <p className="mt-1 text-xs text-muted-foreground">Cari data pada seluruh kolom di tab record aktif.</p>
+          </div>
+          <div className="relative w-full sm:max-w-sm">
+            <Search className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={15} />
+            <input type="search" value={recordSearch} onChange={event => setRecordSearch(event.target.value)} placeholder="Cari EDS record..." aria-label="Cari EDS record" className="h-10 w-full rounded-xl border border-border bg-background pl-9 pr-9 text-sm outline-none transition-colors placeholder:text-muted-foreground focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20" />
+            {recordSearch && <button type="button" onClick={() => setRecordSearch("")} aria-label="Hapus pencarian" className="absolute right-2 top-1/2 inline-flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-lg text-muted-foreground hover:bg-muted hover:text-foreground"><X size={14} /></button>}
+          </div>
+        </div>
         <Tabs defaultValue="configurationReport"><div className="overflow-x-auto"><TabsList className="min-w-max">{groups.map(([label, key]) => <TabsTrigger key={key} value={key}>{label}</TabsTrigger>)}</TabsList></div>{groups.map(([label, key]) => {
           const rows = detail[key] as Array<Record<string, unknown>>;
+          const filteredRows = rows.filter(row => matchesRecordSearch(row, recordSearch));
           const headers = [...new Set(rows.flatMap(row => Object.keys(row).filter(item => !["id", "edsId", "svrId", "iq03Id"].includes(item))))];
-          return <TabsContent key={key} value={key} className="pt-4">{rows.length ? <div className="overflow-x-auto rounded-xl border border-border"><table className="w-full min-w-[900px] text-left text-xs"><thead className="bg-muted"><tr>{headers.map(header => <th key={header} className="px-3 py-2.5 text-[10px] uppercase text-muted-foreground">{header.replace(/([A-Z])/g, " $1")}</th>)}</tr></thead><tbody>{rows.map((row, index) => <tr key={String(row.id || index)} className="border-t border-border">{headers.map(header => <td key={header} className="px-3 py-3">{display(row[header])}</td>)}</tr>)}</tbody></table></div> : <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">No {label.toLowerCase()} data.</div>}</TabsContent>;
+          return <TabsContent key={key} value={key} className="pt-4">{filteredRows.length ? <><p className="mb-2 text-xs text-muted-foreground">{filteredRows.length} dari {rows.length} record</p><div className="overflow-x-auto rounded-xl border border-border"><table className="w-full min-w-[900px] text-left text-xs"><thead className="bg-muted"><tr>{headers.map(header => <th key={header} className="px-3 py-2.5 text-[10px] uppercase text-muted-foreground">{header.replace(/([A-Z])/g, " $1")}</th>)}</tr></thead><tbody>{filteredRows.map((row, index) => <tr key={String(row.id || index)} className="border-t border-border">{headers.map(header => <td key={header} className="px-3 py-3">{display(row[header])}</td>)}</tr>)}</tbody></table></div></> : <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">{recordSearch ? `Tidak ada ${label.toLowerCase()} record yang cocok dengan “${recordSearch.trim()}”.` : `No ${label.toLowerCase()} data.`}</div>}</TabsContent>;
         })}</Tabs>
       </section>
     </div>

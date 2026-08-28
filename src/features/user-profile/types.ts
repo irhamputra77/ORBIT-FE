@@ -17,6 +17,7 @@ export interface UserProfile {
   unit: string | null;
   active: boolean;
   createdAt: string;
+  updatedAt?: string;
   operator: UserOperator | null;
 }
 
