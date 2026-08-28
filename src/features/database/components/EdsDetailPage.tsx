@@ -3,11 +3,13 @@
 import axios from "axios";
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { AlertCircle, ArrowLeft, Download, ExternalLink, FileText, Loader2 } from "lucide-react";
+import { toast } from "sonner";
+import { AlertCircle, ArrowLeft, Download, ExternalLink, FileSpreadsheet, FileText, Loader2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatDateTime } from "@/lib/date-time";
 import type { EdsDetail } from "../edsTypes";
-import { getEdsDetail, getEdsDownloadUrl, getEdsPreviewUrl } from "../services/edsApi";
+import { DatabaseExcelExportError } from "../services/databaseExcelExport";
+import { exportEdsExcel, getEdsDetail, getEdsDownloadUrl, getEdsPreviewUrl } from "../services/edsApi";
 
 const groups: Array<[string, keyof EdsDetail]> = [
   ["Configuration", "configurationReport"],
@@ -29,6 +31,7 @@ export function EdsDetailPage({ id }: { id: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
+  const [isExportingExcel, setIsExportingExcel] = useState(false);
   useEffect(() => {
     const controller = new AbortController();
     async function load() {
@@ -52,9 +55,31 @@ export function EdsDetailPage({ id }: { id: string }) {
   const engine = detail.engine;
   const aircraft = engine?.aircraft;
   const hasPdf = detail.hasPdf;
+  const handleExportExcel = async () => {
+    if (isExportingExcel) return;
+
+    setIsExportingExcel(true);
+    try {
+      await exportEdsExcel(detail.id, detail.engineSerialNumber);
+      toast.success("Data EDS berhasil diekspor ke Excel.");
+    } catch (caughtError) {
+      const message = caughtError instanceof Error
+        ? caughtError.message
+        : "Data EDS gagal diekspor ke Excel.";
+      toast.error(message);
+      if (
+        caughtError instanceof DatabaseExcelExportError
+        && caughtError.status === 401
+      ) {
+        window.location.assign("/login");
+      }
+    } finally {
+      setIsExportingExcel(false);
+    }
+  };
   return (
     <div className="mx-auto max-w-[1500px] space-y-6 p-6">
-      <header><Link href="/database" className="inline-flex items-center gap-2 text-sm font-semibold text-blue-700"><ArrowLeft size={14} />Back to Database</Link><div className="mt-4 flex flex-col justify-between gap-4 lg:flex-row"><div className="flex items-center gap-3"><FileText className="text-blue-700" /><div><h1 className="text-2xl font-bold">{detail.id}</h1><p className="text-sm text-muted-foreground">ESN {detail.engineSerialNumber} · {detail.engineType || engine?.model || "—"}</p></div></div>{hasPdf && <div className="flex gap-2"><a href={getEdsPreviewUrl(detail.id)} target="_blank" className="inline-flex items-center gap-2 rounded-xl border border-border px-4 py-2 text-sm font-semibold"><ExternalLink size={14} />Preview PDF</a><a href={getEdsDownloadUrl(detail.id)} className="inline-flex items-center gap-2 rounded-xl bg-blue-700 px-4 py-2 text-sm font-semibold text-white"><Download size={14} />Download</a></div>}</div></header>
+      <header><Link href="/database" className="inline-flex items-center gap-2 text-sm font-semibold text-blue-700"><ArrowLeft size={14} />Back to Database</Link><div className="mt-4 flex flex-col justify-between gap-4 lg:flex-row"><div className="flex items-center gap-3"><FileText className="text-blue-700" /><div><h1 className="text-2xl font-bold">{detail.id}</h1><p className="text-sm text-muted-foreground">ESN {detail.engineSerialNumber} · {detail.engineType || engine?.model || "—"}</p></div></div><div className="flex flex-wrap gap-2">{hasPdf && <><a href={getEdsPreviewUrl(detail.id)} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-xl border border-border px-4 py-2 text-sm font-semibold"><ExternalLink size={14} />Preview PDF</a><a href={getEdsDownloadUrl(detail.id)} className="inline-flex items-center gap-2 rounded-xl bg-blue-700 px-4 py-2 text-sm font-semibold text-white"><Download size={14} />Download PDF</a></>}<button type="button" onClick={() => void handleExportExcel()} disabled={isExportingExcel} aria-busy={isExportingExcel} className="inline-flex items-center gap-2 rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-emerald-800 disabled:cursor-wait disabled:opacity-70">{isExportingExcel ? <Loader2 size={14} className="animate-spin" /> : <FileSpreadsheet size={14} />}{isExportingExcel ? "Exporting..." : "Export Excel"}</button></div></div></header>
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{[
         ["Original file", detail.originalFileName], ["Uploaded at", formatDateTime(detail.createdAt)],
         ["Engine ID", detail.engineId || engine?.id], ["MSN", engine?.msn], ["Position", engine?.position],

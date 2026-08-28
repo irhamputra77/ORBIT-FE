@@ -14,6 +14,7 @@ import type {
   EdsListResult,
   UploadEdsResult,
 } from "../edsTypes";
+import { downloadDatabaseExcel } from "./databaseExcelExport";
 
 export const MAX_EDS_PDF_SIZE = 100 * 1024 * 1024;
 
@@ -93,6 +94,17 @@ export function getEdsPreviewUrl(id: string) {
 
 export function getEdsDownloadUrl(id: string) {
   return `/api/eds/${encodeURIComponent(id)}/download`;
+}
+
+export function exportEdsExcel(
+  id: string,
+  engineSerialNumber?: string | null,
+) {
+  return downloadDatabaseExcel({
+    endpoint: `/api/eds/${encodeURIComponent(id)}/export/excel`,
+    fallbackFilename: `EDS-${engineSerialNumber?.trim() || id}.xlsx`,
+    documentLabel: "EDS",
+  });
 }
 
 export async function validateEdsPdf(file: File) {

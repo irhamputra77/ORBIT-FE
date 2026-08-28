@@ -60,6 +60,16 @@ export function EESReviewHistorySection({
   const router = useSmoothNavigation();
 
   const openEesDetail = (record: EESReviewRecord) => {
+    if (record.workflowStep && record.workflowStep < 5) {
+      const query = new URLSearchParams({
+        resumeEesId: record.id,
+        sourceSbId: record.sourceSbId,
+        step: String(record.workflowStep),
+      });
+      router.push(`/ees-generator?${query.toString()}`);
+      return;
+    }
+
     router.push(
       `/ees/${encodeURIComponent(record.id)}?sourceSbId=${encodeURIComponent(record.sourceSbId)}`,
     );

@@ -103,7 +103,11 @@ import {
 } from "../services/approval-service";
 import { isCategoryManual } from "../services/category-service";
 import { createValidatedEesPayload } from "../services/ees-payload";
-import { saveEesWorkflowProgress } from "../services/workflow-progress";
+import {
+  getEesWorkflowProgress,
+  saveEesWorkflowProgress,
+  type EesWorkflowStep,
+} from "../services/workflow-progress";
 import {
   CITILINK_ACCOMPLISHMENT_METHODS,
   CITILINK_COMPONENT_TYPES,
@@ -2524,6 +2528,7 @@ function Step2SelectCategory({
   data,
   onNext,
   onPrev,
+  onTemplateChange,
   onJumpToPage,
   docViewerOpen,
   onToggleDoc,
@@ -2531,6 +2536,7 @@ function Step2SelectCategory({
   data: any;
   onNext: (ees: any) => void;
   onPrev: () => void;
+  onTemplateChange?: (template: ManualUploadTemplate) => void;
   onJumpToPage?: (page: number) => void;
   docViewerOpen?: boolean;
   onToggleDoc?: () => void;
@@ -2540,8 +2546,9 @@ function Step2SelectCategory({
 
   const engine = sb ? sb.engineType : engMap[fleet] || "";
   const backendTemplate = normalizeManualUploadTemplate(sb?.eesTemplate) || undefined;
+  const initialTemplate = normalizeManualUploadTemplate(data.eesTemplate) || undefined;
   const [selectedTemplate, setSelectedTemplate] = useState<ManualUploadTemplate | undefined>(
-    normalizeManualUploadTemplate(data.eesTemplate) || undefined,
+    initialTemplate,
   );
   const airline = selectedTemplate === "citilink"
     ? "Citilink"
@@ -2597,6 +2604,11 @@ function Step2SelectCategory({
   );
   const [manualDraft, setManualDraft] = useState<Record<string, unknown>>(
     data.manualDraft || {},
+  );
+  const templateDraftsRef = useRef<Partial<Record<ManualUploadTemplate, Record<string, unknown>>>>(
+    initialTemplate
+      ? { [initialTemplate]: data.manualDraft || {} }
+      : {},
   );
   const [savingAiReview, setSavingAiReview] = useState(false);
   const [validationError, setValidationError] = useState<WorkflowValidationError | null>(null);
@@ -2716,8 +2728,6 @@ function Step2SelectCategory({
     isManualCategory: requiresManualEES,
     aiSuggestedCategory: aiCategory,
     aiConfidence,
-    eesTemplate: selectedTemplate,
-    fleetTemplate: fleetTpl,
     ...(!requiresManualEES ? {
       evaluations: generatedEvaluations,
       taskType: sb?.taskType || "-",
@@ -2757,6 +2767,24 @@ function Step2SelectCategory({
     } : {}),
     remarks,
     ...manualDraft,
+    // The active template is the source of truth. A restored/manual draft may
+    // still contain the previous template and must never override the choice.
+    eesTemplate: selectedTemplate,
+    fleetTemplate: fleetTpl,
+  };
+
+  const handleTemplateSelection = (template: ManualUploadTemplate) => {
+    if (template === selectedTemplate) return;
+
+    if (selectedTemplate) {
+      templateDraftsRef.current[selectedTemplate] = manualDraft;
+    }
+
+    const nextDraft = templateDraftsRef.current[template] || {};
+    setManualDraft(nextDraft);
+    setSelectedTemplate(template);
+    setValidationError(null);
+    onTemplateChange?.(template);
   };
 
   const handleManualDraftChange = (field: string, value: string | string[] | boolean) => {
@@ -2792,7 +2820,7 @@ function Step2SelectCategory({
     });
   };
 
-  const isCitilinkTemplate = fleetTpl.template === "citilink";
+  const isCitilinkTemplate = selectedTemplate === "citilink";
   const missingCitilinkFields = isCitilinkTemplate
     ? getMissingCitilinkRequiredFields(eesData)
     : [];
@@ -3016,10 +3044,7 @@ function Step2SelectCategory({
                 id={`ees-template-${template}`}
                 type="button"
                 aria-pressed={selected}
-                onClick={() => {
-                  setSelectedTemplate(template);
-                  setValidationError(null);
-                }}
+                onClick={() => handleTemplateSelection(template)}
                 className="flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-[10px] font-semibold transition-colors"
                 style={{
                   borderColor: selected ? color : "var(--border)",
@@ -3214,6 +3239,7 @@ function Step2SelectCategory({
             )}
             {isCitilinkTemplate ? (
               <CitilinkEESTemplatePreview
+                key="manual-citilink-template"
                 ees={eesData}
                 editableFields
                 engineeringActionEditable
@@ -3224,6 +3250,7 @@ function Step2SelectCategory({
               />
             ) : (
               <EESTemplatePreview
+                key="manual-garuda-template"
                 ees={eesData}
                 editableFields
                 allowRelationEditing
@@ -3273,6 +3300,7 @@ function Step2SelectCategory({
                 </div>
               )}
               <CitilinkEESTemplatePreview
+                key="generated-citilink-template"
                 ees={eesData}
                 engineeringActionEditable
                 furtherImplementationEditable
@@ -3282,6 +3310,7 @@ function Step2SelectCategory({
             </div>
           ) : (
             <EESTemplatePreview
+              key="generated-garuda-template"
               ees={eesData}
               editableFields={false}
               esnEditable
@@ -5059,8 +5088,26 @@ function Step5Done({
   );
 }
 
-function EESGeneratorWorkflowContent() {
+type EESGeneratorWorkflowProps = {
+  resumeEesId?: string;
+  resumeSourceSbId?: string;
+  resumeStep?: string;
+};
+
+function normalizeResumeStep(value: string | undefined): EesWorkflowStep | null {
+  const step = Number(value);
+  return Number.isInteger(step) && step >= 1 && step <= 5
+    ? step as EesWorkflowStep
+    : null;
+}
+
+function EESGeneratorWorkflowContent({
+  resumeEesId,
+  resumeSourceSbId,
+  resumeStep,
+}: EESGeneratorWorkflowProps) {
   const [timelineMinimized, setTimelineMinimized] = useState(false);
+  const [isRestoringWorkflow, setIsRestoringWorkflow] = useState(Boolean(resumeEesId));
   const eesReviewHistory = useEESReviewHistory();
   const {
     currentStep,
@@ -5081,14 +5128,111 @@ function EESGeneratorWorkflowContent() {
     stepDirection,
     advance,
     goBack,
+    resumeWorkflow,
     resetWorkflow,
   } = useEESGeneratorWorkflow<any>();
 
   const selectedSB = stepData.step1?.selectedSB ?? null;
   const retryEesReviewHistory = eesReviewHistory.retry;
   const previousStepRef = useRef(currentStep);
+  const restoreRequestRef = useRef(0);
 
   useEffect(() => {
+    if (!resumeEesId) return;
+
+    const requestId = restoreRequestRef.current + 1;
+    restoreRequestRef.current = requestId;
+
+    const restoreFromBackend = async () => {
+      await Promise.resolve();
+      const storedProgress = getEesWorkflowProgress(resumeEesId);
+      const targetStep = normalizeResumeStep(resumeStep)
+        ?? storedProgress?.step
+        ?? 1;
+      const sourceSbId = (resumeSourceSbId || storedProgress?.sourceSbId || "").trim();
+
+      if (storedProgress?.stepData && Object.keys(storedProgress.stepData).length > 0) {
+        resumeWorkflow(targetStep, storedProgress.stepData);
+        setIsRestoringWorkflow(false);
+        return;
+      }
+
+      if (!sourceSbId) {
+        toast.error("Source Service Bulletin tidak tersedia untuk melanjutkan workflow.");
+        setIsRestoringWorkflow(false);
+        return;
+      }
+
+      try {
+        const [serviceBulletin, eesResult, aiSummaryResult] = await Promise.all([
+          getServiceBulletin(sourceSbId),
+          getServiceBulletinEes(sourceSbId),
+          getServiceBulletinAiSummary(sourceSbId).catch(() => null),
+        ]);
+        if (restoreRequestRef.current !== requestId) return;
+        if (eesResult.status !== "available") {
+          throw new Error("Dokumen EES yang tersimpan tidak ditemukan.");
+        }
+
+        const selectedSB = attachGeneratedEesDocument(
+          toWorkflowServiceBulletin(serviceBulletin),
+          eesResult.data,
+        );
+        const inferredTemplate = normalizeManualUploadTemplate(eesResult.data.eesTemplate)
+          || normalizeManualUploadTemplate(selectedSB.eesTemplate)
+          || (selectedSB.operatorCode?.toUpperCase() === "QG" ? "citilink" : "garuda");
+        const step1 = {
+          selectedSB,
+          generatedEesDocument: eesResult.data,
+          aiSummary: aiSummaryResult,
+          summarized: Boolean(aiSummaryResult || selectedSB.complianceCategory),
+          fleet: eesResult.data.aircraftType || selectedSB.fleet,
+          eesNumber: eesResult.data.eesNumber,
+          tdr: eesResult.data.eesNumber,
+          eesTemplate: inferredTemplate,
+          isUnsyncedSB: false,
+        };
+        const restoredEes = mergeGeneratedEesIntoWorkflow({
+          ...step1,
+          bulletinNumber: selectedSB.id,
+          bulletinRevision: selectedSB.revision,
+          engineType: selectedSB.engineType,
+          affectedESNs: selectedSB.affectedESNs,
+          affectedPartNumbers: selectedSB.affectedPartNumbers,
+          evaluations: eesResult.data.evaluations,
+          eesCategory: selectedSB.category || "—",
+          aiConfidence: selectedSB.aiConfidence,
+          isManualCategory: !selectedSB.complianceCategory || selectedSB.aiConfidence === undefined,
+        }, eesResult.data);
+        const restoredData = {
+          step1,
+          ...(targetStep >= 3 ? { ees: restoredEes } : {}),
+          ...(targetStep >= 4 ? { generatedEes: eesResult.data } : {}),
+        };
+
+        resumeWorkflow(targetStep, restoredData);
+        saveEesWorkflowProgress({
+          eesId: resumeEesId,
+          sourceSbId,
+          step: targetStep,
+          stepData: restoredData,
+        });
+      } catch (caughtError) {
+        toast.error(
+          caughtError instanceof Error
+            ? caughtError.message
+            : "Workflow EES tidak dapat dipulihkan.",
+        );
+      } finally {
+        if (restoreRequestRef.current === requestId) setIsRestoringWorkflow(false);
+      }
+    };
+
+    void restoreFromBackend();
+  }, [resumeEesId, resumeSourceSbId, resumeStep, resumeWorkflow]);
+
+  useEffect(() => {
+    if (isRestoringWorkflow) return;
     const generatedDocument = stepData.step1?.generatedEesDocument
       ?? stepData.ees?.generatedEesDocument
       ?? stepData.generatedEes;
@@ -5106,9 +5250,14 @@ function EESGeneratorWorkflowContent() {
     ).trim();
 
     if (eesId) {
-      saveEesWorkflowProgress({ eesId, sourceSbId, step: currentStep });
+      saveEesWorkflowProgress({
+        eesId,
+        sourceSbId,
+        step: currentStep,
+        stepData,
+      });
     }
-  }, [currentStep, stepData]);
+  }, [currentStep, isRestoringWorkflow, stepData]);
 
   useEffect(() => {
     const previousStep = previousStepRef.current;
@@ -5117,6 +5266,22 @@ function EESGeneratorWorkflowContent() {
       retryEesReviewHistory();
     }
   }, [currentStep, retryEesReviewHistory]);
+
+  if (isRestoringWorkflow) {
+    return (
+      <div className="flex h-full min-h-[520px] items-center justify-center bg-background">
+        <div className="flex flex-col items-center gap-3 text-center" role="status" aria-live="polite">
+          <Loader2 size={28} className="animate-spin text-blue-700" />
+          <div>
+            <p className="text-sm font-semibold text-foreground">Memulihkan workflow EES</p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              Membuka kembali tahap terakhir yang tersimpan...
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // ── Main workflow view — persistent 3-panel layout ──
   return (
@@ -5326,9 +5491,26 @@ function EESGeneratorWorkflowContent() {
           )}
             {currentStep === 2 && (
               <Step2SelectCategory
-                data={stepData.step1 || {}}
+                data={{
+                  ...(stepData.step1 || {}),
+                  ...(stepData.ees || {}),
+                  selectedSB: stepData.step1?.selectedSB ?? stepData.ees?.selectedSB ?? null,
+                }}
                 onNext={(ees: any) => { setStepData((p: any) => ({ ...p, ees })); advance(2); }}
                 onPrev={() => goBack(1)}
+                onTemplateChange={(template) => {
+                  setStepData((previous: any) => ({
+                    ...previous,
+                    step1: {
+                      ...(previous.step1 || {}),
+                      eesTemplate: template,
+                    },
+                    ees: {
+                      ...(previous.ees || {}),
+                      eesTemplate: template,
+                    },
+                  }));
+                }}
                 onJumpToPage={(p: number) => setDocTargetPage(p)}
                 docViewerOpen={docViewerOpen}
                 onToggleDoc={() => setDocViewerOpen((v: boolean) => !v)}
@@ -5415,6 +5597,6 @@ function EESGeneratorWorkflowContent() {
   );
 }
 
-export function EESGeneratorWorkflow() {
-  return <EESGeneratorWorkflowContent />;
+export function EESGeneratorWorkflow(props: EESGeneratorWorkflowProps) {
+  return <EESGeneratorWorkflowContent {...props} />;
 }

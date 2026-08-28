@@ -1,4 +1,3 @@
-import axios from "axios";
 import { axiosClient } from "@/lib/http/axiosClient";
 import {
   directUploadClient,
@@ -20,6 +19,7 @@ import type {
   ShopVisitReportListResponse,
   UploadShopVisitReportResult,
 } from "../types";
+import { downloadDatabaseExcel } from "./databaseExcelExport";
 
 export const MAX_SVR_PDF_SIZE = 100 * 1024 * 1024;
 export const MAX_SVR_PDF_FILES = 6;
@@ -153,84 +153,13 @@ export function getShopVisitReportDownloadUrl(id: string) {
   return `/api/shop-visit-reports/${encodeURIComponent(id)}/download`;
 }
 
-const EXCEL_MIME_TYPE =
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-
-function safeDownloadName(value: string) {
-  return value
-    .replace(/[<>:"/\\|?*\u0000-\u001F]/g, "-")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-async function excelExportErrorMessage(error: unknown) {
-  if (!axios.isAxiosError(error)) {
-    return error instanceof Error
-      ? error.message
-      : "Data SVR gagal diekspor ke Excel.";
-  }
-
-  const fallback = error.response?.status
-    ? `Export gagal (HTTP ${error.response.status}).`
-    : "Data SVR gagal diekspor ke Excel.";
-  const payload = error.response?.data;
-
-  if (payload instanceof Blob) {
-    try {
-      const body = JSON.parse(await payload.text()) as {
-        error?: unknown;
-        message?: unknown;
-        details?: unknown;
-      };
-      if (typeof body.details === "string") return body.details;
-      if (typeof body.error === "string") return body.error;
-      if (typeof body.message === "string") return body.message;
-    } catch {
-      // Error responses from the export endpoint are not always JSON.
-    }
-  }
-
-  return fallback;
-}
-
 export async function exportShopVisitReportExcel(
   id: string,
   engineSerialNumber?: string | null,
 ) {
-  try {
-    const response = await directUploadClient.get<Blob>(
-      `/api/shop-visit-reports/${encodeURIComponent(id)}/export/excel`,
-      {
-        responseType: "blob",
-        timeout: 0,
-        headers: {
-          Accept: EXCEL_MIME_TYPE,
-          "X-Requested-With": "XMLHttpRequest",
-        },
-      },
-    );
-
-    const blob = response.data;
-    if (!(blob instanceof Blob) || blob.size === 0) {
-      throw new Error("File Excel yang diterima dari backend kosong.");
-    }
-
-    const filename = safeDownloadName(
-      `SVR-${engineSerialNumber?.trim() || id}.xlsx`,
-    );
-    const objectUrl = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-
-    try {
-      anchor.href = objectUrl;
-      anchor.download = filename;
-      document.body.appendChild(anchor);
-      anchor.click();
-    } finally {
-      anchor.remove();
-      URL.revokeObjectURL(objectUrl);
-    }
-  } catch (error) {
-    throw new Error(await excelExportErrorMessage(error));
-  }
+  return downloadDatabaseExcel({
+    endpoint: `/api/shop-visit-reports/${encodeURIComponent(id)}/export/excel`,
+    fallbackFilename: `SVR-${engineSerialNumber?.trim() || id}.xlsx`,
+    documentLabel: "SVR",
+  });
 }

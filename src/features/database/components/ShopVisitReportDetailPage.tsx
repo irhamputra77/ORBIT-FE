@@ -31,6 +31,7 @@ import {
   getShopVisitReportDownloadUrl,
   getShopVisitReportPreviewUrl,
 } from "../services/shopVisitReportApi";
+import { DatabaseExcelExportError } from "../services/databaseExcelExport";
 
 function text(value: unknown, fallback = "—") {
   if (value === null || value === undefined || value === "") return fallback;
@@ -303,6 +304,12 @@ export function ShopVisitReportDetailPage({ id }: { id: string }) {
           ? error.message
           : "Data SVR gagal diekspor ke Excel.",
       );
+      if (
+        error instanceof DatabaseExcelExportError
+        && error.status === 401
+      ) {
+        window.location.assign("/login");
+      }
     } finally {
       setIsExportingExcel(false);
     }

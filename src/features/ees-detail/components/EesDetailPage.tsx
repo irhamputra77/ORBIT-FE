@@ -31,6 +31,11 @@ import {
 } from "@/components/ui/tabs";
 import { StepIndicator } from "@/features/ees-generator";
 import {
+  EES_WORKFLOW_STEP_LABELS,
+  getEesWorkflowProgress,
+  type EesWorkflowStep,
+} from "@/features/ees-generator/services/workflow-progress";
+import {
   getEesApprovalState,
   getEesPdfUrl,
   getServiceBulletin,
@@ -334,6 +339,7 @@ export function EesDetailPage({
   const [applicability, setApplicability] = useState<ServiceBulletinApplicability | null>(null);
   const [resolvedSourceSbId, setResolvedSourceSbId] = useState(sourceSbId);
   const [isLoading, setIsLoading] = useState(true);
+  const [resumingWorkflowStep, setResumingWorkflowStep] = useState<EesWorkflowStep | null>(null);
   const [error, setError] = useState<PageError | null>(null);
   const [requestVersion, setRequestVersion] = useState(0);
 
@@ -347,6 +353,7 @@ export function EesDetailPage({
       setError(null);
       setApproval(null);
       setApplicability(null);
+      setResumingWorkflowStep(null);
       setResolvedSourceSbId(sourceSbId);
 
       try {
@@ -393,9 +400,42 @@ export function EesDetailPage({
           getServiceBulletinApplicability(targetSourceSbId, controller.signal),
         ]);
         if (controller.signal.aborted) return;
-        if (approvalResult.status === "fulfilled") setApproval(approvalResult.value);
+        const approvalState = approvalResult.status === "fulfilled"
+          ? approvalResult.value
+          : null;
+        if (approvalState) setApproval(approvalState);
         if (applicabilityResult.status === "fulfilled") {
           setApplicability(applicabilityResult.value);
+        }
+
+        const workflowProgress = getEesWorkflowProgress(eesResult.data.id)
+          ?? getEesWorkflowProgress(eesId);
+        const approvalStatus = (
+          approvalState?.status
+          || eesResult.data.reviewStatus
+          || ""
+        ).toUpperCase();
+        const hasApprovalWorkflow = Boolean(
+          approvalState?.assignedRole
+          || approvalState?.history.length,
+        );
+        const isFinalApprovalStatus = ["APPROVED", "REJECTED", "RETURNED"].includes(
+          approvalStatus,
+        );
+
+        if (
+          workflowProgress
+          && workflowProgress.step < 5
+          && !hasApprovalWorkflow
+          && !isFinalApprovalStatus
+        ) {
+          setResumingWorkflowStep(workflowProgress.step);
+          const query = new URLSearchParams({
+            resumeEesId: eesResult.data.id,
+            sourceSbId: targetSourceSbId,
+            step: String(workflowProgress.step),
+          });
+          router.replace(`/ees-generator?${query.toString()}`);
         }
       } catch (caughtError) {
         if (axios.isCancel(caughtError)) return;
@@ -419,10 +459,30 @@ export function EesDetailPage({
   }, [
     eesId,
     requestVersion,
+    router,
     sourceSbId,
   ]);
 
-  if (isLoading) return <EesDetailSkeleton />;
+  if (isLoading || resumingWorkflowStep) {
+    return (
+      <div className="relative">
+        <EesDetailSkeleton />
+        {resumingWorkflowStep && (
+          <div className="fixed inset-0 z-40 flex items-center justify-center bg-background/70 backdrop-blur-sm">
+            <div className="rounded-2xl border border-blue-200 bg-card px-6 py-5 text-center shadow-xl">
+              <RefreshCw size={22} className="mx-auto animate-spin text-blue-700" />
+              <p className="mt-3 text-sm font-semibold text-foreground">
+                Melanjutkan Step {resumingWorkflowStep}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                {EES_WORKFLOW_STEP_LABELS[resumingWorkflowStep]} sedang dipulihkan...
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
 
   if (error || !document || !serviceBulletin) {
     const accessDenied = error?.kind === "forbidden";

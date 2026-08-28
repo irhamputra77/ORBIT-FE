@@ -4,9 +4,10 @@ const MAX_PROGRESS_AGE_MS = 30 * 24 * 60 * 60 * 1000;
 
 export type EesWorkflowStep = 1 | 2 | 3 | 4 | 5;
 
-type StoredWorkflowProgress = {
+export type StoredWorkflowProgress = {
   step: EesWorkflowStep;
   sourceSbId?: string;
+  stepData?: Record<string, unknown>;
   updatedAt: string;
 };
 
@@ -67,19 +68,22 @@ export function saveEesWorkflowProgress({
   eesId,
   sourceSbId,
   step,
+  stepData,
 }: {
   eesId: string;
   sourceSbId?: string;
   step: number;
+  stepData?: Record<string, unknown>;
 }) {
   const normalizedEesId = eesId.trim();
   if (!normalizedEesId || !isWorkflowStep(step)) return;
 
   const store = readStore();
-  const previousStep = store[normalizedEesId]?.step ?? 1;
+  const furthestStep = Math.max(store[normalizedEesId]?.step ?? 1, step) as EesWorkflowStep;
   store[normalizedEesId] = {
-    step: Math.max(previousStep, step) as EesWorkflowStep,
+    step: furthestStep,
     ...(sourceSbId?.trim() ? { sourceSbId: sourceSbId.trim() } : {}),
+    ...(stepData ? { stepData } : {}),
     updatedAt: new Date().toISOString(),
   };
   writeStore(store);

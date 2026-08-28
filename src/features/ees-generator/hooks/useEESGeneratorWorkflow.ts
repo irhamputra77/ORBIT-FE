@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 
 export function useEESGeneratorWorkflow<TData extends Record<string, unknown>>() {
   const [currentStep, setCurrentStep] = useState(1);
@@ -25,6 +25,19 @@ export function useEESGeneratorWorkflow<TData extends Record<string, unknown>>()
     setCompleted(previous => new Set([...previous].filter(step => step < to)));
     setCurrentStep(to);
   };
+
+  const resumeWorkflow = useCallback((step: number, data: TData) => {
+    const normalizedStep = Math.min(5, Math.max(1, Math.trunc(step)));
+    setStepDirection(1);
+    setCompleted(new Set(
+      Array.from({ length: Math.max(0, normalizedStep - 1) }, (_, index) => index + 1),
+    ));
+    setStepData(data);
+    setCurrentStep(normalizedStep);
+    setDocViewerOpen(false);
+    setShowFullscreenDoc(false);
+    setDocTargetPage(undefined);
+  }, []);
 
   const resetWorkflow = () => {
     setStepDirection(-1);
@@ -57,6 +70,7 @@ export function useEESGeneratorWorkflow<TData extends Record<string, unknown>>()
     stepDirection,
     advance,
     goBack,
+    resumeWorkflow,
     resetWorkflow,
   };
 }
