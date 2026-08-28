@@ -59,6 +59,8 @@ export default function LoginPage() {
     if (!result) return;
 
     setIsRedirecting(true);
+    window.localStorage.removeItem("orbit_user");
+    window.sessionStorage.removeItem("orbit_user");
     const storage = rememberMe ? window.localStorage : window.sessionStorage;
     storage.setItem("orbit_user", JSON.stringify(result.user));
     window.sessionStorage.setItem(SHOW_NOTIFICATION_TOAST_AFTER_LOGIN, "1");

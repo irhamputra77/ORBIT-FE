@@ -59,16 +59,6 @@ export function Header() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const changeRole = (role: 'engineer' | 'manager') => {
-    setUserRole(role);
-    if (role === 'manager' && pathname === '/second-engineer-review') {
-      router.push('/manager-ees-review');
-    }
-    if (role === 'engineer' && pathname === '/manager-ees-review') {
-      router.push('/second-engineer-review');
-    }
-  };
-
   return (
     <header
       className="flex items-center gap-3 px-5 py-3 border-b shrink-0"
@@ -207,37 +197,11 @@ export function Header() {
         )}
       </AnimatePresence>
 
-      {/* Role Switcher */}
-      {userRole === "admin" ? (
-        <div className="mr-2 inline-flex items-center gap-2 rounded-lg border border-blue-700/20 bg-blue-700/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-blue-700">
-          <ShieldCheck size={13} /> Administrator
-        </div>
-      ) : (
-      <div className="flex items-center p-0.5 rounded-lg mr-2" style={{ background: 'var(--muted)', border: '1px solid var(--border)' }}>
-        <button
-          onClick={() => changeRole('engineer')}
-          className="px-3 py-1 text-[11px] font-semibold rounded-md transition-all"
-          style={{
-            background: userRole === 'engineer' ? 'var(--card)' : 'transparent',
-            color: userRole === 'engineer' ? 'var(--foreground)' : 'var(--muted-foreground)',
-            boxShadow: userRole === 'engineer' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
-          }}
-        >
-          Engineer
-        </button>
-        <button
-          onClick={() => changeRole('manager')}
-          className="px-3 py-1 text-[11px] font-semibold rounded-md transition-all"
-          style={{
-            background: userRole === 'manager' ? 'var(--card)' : 'transparent',
-            color: userRole === 'manager' ? 'var(--foreground)' : 'var(--muted-foreground)',
-            boxShadow: userRole === 'manager' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none'
-          }}
-        >
-          Manager
-        </button>
+      {/* Authenticated role is read-only; changing workspace requires the matching account. */}
+      <div className="mr-2 inline-flex items-center gap-2 rounded-lg border border-blue-700/20 bg-blue-700/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-blue-700">
+        <ShieldCheck size={13} />
+        {userRole === "admin" ? "Administrator" : userRole === "manager" ? "Manager" : "Engineer"}
       </div>
-      )}
 
       <NotificationCenter />
 

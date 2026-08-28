@@ -142,7 +142,6 @@ const adminNavItems: NavItem[] = [
   { label: "User Management", icon: UsersRound, path: "/administration/users" },
   { label: "Engineering Dashboard", icon: LayoutDashboard, path: "/dashboard" },
   { label: "Database", icon: Database, path: "/database" },
-  { label: "EES Approval", icon: CheckCircle2, path: "/manager-ees-review" },
   { label: "SB Status", icon: Shield, path: "/adsb-status" },
 ];
 
