@@ -61,11 +61,12 @@ export interface EesAssignment {
   operatorName: string | null;
   createdByName: string | null;
   createdByRole: string | null;
-  assignedToId?: number;
-  assignedToName?: string;
-  assignedToRole?: string;
+  assignedToId: string | null;
+  assignedToName: string | null;
+  assignedToRole: string | null;
   reviewedBy?: string | null;
   reviewedAt?: string | null;
+  isWorkflowComplete: boolean;
   hasGarudaPdf: boolean;
   hasCitilinkPdf: boolean;
   hasExcel: boolean;
