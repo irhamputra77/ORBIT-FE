@@ -147,6 +147,7 @@ const engMap: Record<string, string> = {
 };
 
 const SERVICE_BULLETIN_PAGE_SIZE = 20;
+const APPLICABILITY_PAGE_SIZE = 10;
 
 type ManualUploadTemplate = "garuda" | "citilink";
 
@@ -1000,21 +1001,29 @@ function Step1SelectSB({
   onNext: (d: any) => void;
   onSave: (d: any) => void;
 }) {
-  const serviceBulletinQuery = useServiceBulletins(
-    {
-      page: 1,
-      limit: 100,
-      sortBy: "receivedAt",
-      sortOrder: "desc",
-    },
-    { fetchAll: true, enabled: true },
-  );
-  const uploadServiceBulletin = useUploadServiceBulletin();
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [filterFleet, setFilterFleet] = useState("");
   const [filterEngine, setFilterEngine] = useState("");
   const [filterSync, setFilterSync] = useState("");
   const [serviceBulletinPage, setServiceBulletinPage] = useState(1);
+  const requiresClientFiltering = filterSync === "Synced"
+    || Boolean(filterFleet || filterEngine);
+  const serviceBulletinQuery = useServiceBulletins(
+    {
+      page: requiresClientFiltering ? 1 : serviceBulletinPage,
+      limit: requiresClientFiltering ? 100 : SERVICE_BULLETIN_PAGE_SIZE,
+      search: debouncedSearchQuery || undefined,
+      sortBy: "receivedAt",
+      sortOrder: "desc",
+    },
+    {
+      fetchAll: requiresClientFiltering,
+      pendingOnly: filterSync === "Unsynced",
+      enabled: true,
+    },
+  );
+  const uploadServiceBulletin = useUploadServiceBulletin();
   const [selectedSB, setSelectedSB] = useState<DBServiceBulletin | null>(saved?.selectedSB || null);
   const [selectedEesDocument, setSelectedEesDocument] =
     useState<ServiceBulletinEesDocument | null>(saved?.generatedEesDocument || null);
@@ -1041,12 +1050,19 @@ function Step1SelectSB({
   const detailRequestVersion = useRef(0);
   const serviceBulletinListRef = useRef<HTMLDivElement>(null);
   const needsFleetSelection = Boolean(selectedSB && isMissingFleetType(selectedSB.fleet));
-  const aircraftTypesQuery = useAircraftTypes(
-    showManualModal || (showContinueRequirementsModal && needsFleetSelection),
-  );
+  const aircraftTypesQuery = useAircraftTypes(true);
   const aircraftTypes = aircraftTypesQuery.aircraftTypes;
   const aircraftTypesLoading = aircraftTypesQuery.isLoading;
   const aircraftTypesError = aircraftTypesQuery.error;
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setServiceBulletinPage(1);
+      setDebouncedSearchQuery(searchQuery.trim());
+    }, 350);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [searchQuery]);
 
   useEffect(() => {
     if (!uploadServiceBulletin.isBusy) {
@@ -1080,40 +1096,43 @@ function Step1SelectSB({
     ])].sort((left, right) => left.localeCompare(right)),
     [aircraftTypes, backendServiceBulletins, selectedFleetType],
   );
-  const uniqueFleets = [...new Set(allSBs.map((sb) => sb.fleet))];
-  const uniqueEngines = [...new Set(allSBs.map((sb) => sb.engineType))];
+  const uniqueFleets = [...new Set([
+    ...aircraftTypes,
+    ...allSBs.map((sb) => sb.fleet),
+    ...(filterFleet ? [filterFleet] : []),
+  ])].sort((left, right) => left.localeCompare(right));
+  const uniqueEngines = [...new Set([
+    ...Object.values(engMap),
+    ...allSBs.map((sb) => sb.engineType),
+    ...(filterEngine ? [filterEngine] : []),
+  ])].sort((left, right) => left.localeCompare(right));
   const visibleSBs = allSBs.filter((sb) => {
-    const query = searchQuery.trim().toLowerCase();
-    const matchesQuery = !query
-      || sb.id.toLowerCase().includes(query)
-      || sb.title.toLowerCase().includes(query)
-      || sb.fleet.toLowerCase().includes(query)
-      || sb.engineType.toLowerCase().includes(query);
     const matchesFleet = !filterFleet || sb.fleet === filterFleet;
     const matchesEngine = !filterEngine || sb.engineType === filterEngine;
     const matchesSync = !filterSync || sb.syncStatus === filterSync;
-    return matchesQuery && matchesFleet && matchesEngine && matchesSync;
+    return matchesFleet && matchesEngine && matchesSync;
   });
+  const serviceBulletinResultTotal = requiresClientFiltering
+    ? visibleSBs.length
+    : serviceBulletinQuery.total;
   const serviceBulletinTotalPages = Math.max(
     1,
-    Math.ceil(visibleSBs.length / SERVICE_BULLETIN_PAGE_SIZE),
+    Math.ceil(serviceBulletinResultTotal / SERVICE_BULLETIN_PAGE_SIZE),
   );
   const serviceBulletinPageStart = (serviceBulletinPage - 1) * SERVICE_BULLETIN_PAGE_SIZE;
-  const paginatedServiceBulletins = visibleSBs.slice(
-    serviceBulletinPageStart,
-    serviceBulletinPageStart + SERVICE_BULLETIN_PAGE_SIZE,
-  );
-  const serviceBulletinRangeStart = visibleSBs.length === 0
+  const paginatedServiceBulletins = requiresClientFiltering
+    ? visibleSBs.slice(
+        serviceBulletinPageStart,
+        serviceBulletinPageStart + SERVICE_BULLETIN_PAGE_SIZE,
+      )
+    : visibleSBs;
+  const serviceBulletinRangeStart = serviceBulletinResultTotal === 0
     ? 0
     : serviceBulletinPageStart + 1;
   const serviceBulletinRangeEnd = Math.min(
-    serviceBulletinPageStart + SERVICE_BULLETIN_PAGE_SIZE,
-    visibleSBs.length,
+    serviceBulletinPageStart + paginatedServiceBulletins.length,
+    serviceBulletinResultTotal,
   );
-
-  useEffect(() => {
-    setServiceBulletinPage(currentPage => Math.min(currentPage, serviceBulletinTotalPages));
-  }, [serviceBulletinTotalPages]);
 
   const changeServiceBulletinPage = (nextPage: number) => {
     const normalizedPage = Math.min(
@@ -1865,10 +1884,7 @@ function Step1SelectSB({
             <Search size={11} className="shrink-0 text-muted-foreground" />
             <input
               value={searchQuery}
-              onChange={(event) => {
-                setSearchQuery(event.target.value);
-                setServiceBulletinPage(1);
-              }}
+              onChange={(event) => setSearchQuery(event.target.value)}
               placeholder="Search SB ID, fleet, engine type..."
               className="flex-1 bg-transparent text-[11px] text-foreground outline-none placeholder:text-muted-foreground"
             />
@@ -1877,6 +1893,7 @@ function Step1SelectSB({
                 type="button"
                 onClick={() => {
                   setSearchQuery("");
+                  setDebouncedSearchQuery("");
                   setServiceBulletinPage(1);
                 }}
                 aria-label="Clear Service Bulletin search"
@@ -1936,7 +1953,7 @@ function Step1SelectSB({
             Main Database — Service Bulletins
           </span>
           <span className="ml-auto text-[9px] text-white/60">
-            {`${visibleSBs.length} matching · ${allSBs.length} received from API`}
+            {`${paginatedServiceBulletins.length} on this page · ${serviceBulletinResultTotal} total`}
           </span>
         </motion.div>
 
@@ -1956,7 +1973,7 @@ function Step1SelectSB({
               </button>
             </div>
           )}
-          {paginatedServiceBulletins.map((sb, i) => {
+          {!serviceBulletinQuery.isLoading && paginatedServiceBulletins.map((sb, i) => {
             const isSelected = selectedSB?.id === sb.id;
             const isUnsynced = sb.syncStatus === "Unsynced";
             const isLoadingDetail = detailLoadingId === sb.backendId;
@@ -2023,30 +2040,30 @@ function Step1SelectSB({
               </motion.div>
             );
           })}
-          {!serviceBulletinQuery.isLoading && !serviceBulletinQuery.error && visibleSBs.length === 0 && (
+          {!serviceBulletinQuery.isLoading && !serviceBulletinQuery.error && serviceBulletinResultTotal === 0 && (
             <motion.div
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ duration: 0.28 }}
               className="px-3 py-8 text-center text-[11px] text-muted-foreground"
             >
-              {allSBs.length === 0
+              {serviceBulletinQuery.items.length === 0
                 ? "No Service Bulletins were returned by the API."
                 : "No Service Bulletins match the selected filters."}
             </motion.div>
           )}
         </div>
 
-        {!serviceBulletinQuery.isLoading
+          {!serviceBulletinQuery.isLoading
           && !serviceBulletinQuery.error
-          && visibleSBs.length > 0
+          && serviceBulletinResultTotal > 0
           && serviceBulletinTotalPages > 1 && (
             <nav
               aria-label="Service Bulletin pagination"
               className="flex shrink-0 items-center justify-between gap-3 border-t border-border bg-card px-3 py-2"
             >
               <span className="text-[9px] text-muted-foreground">
-                {serviceBulletinRangeStart}–{serviceBulletinRangeEnd} of {visibleSBs.length}
+                {serviceBulletinRangeStart}–{serviceBulletinRangeEnd} of {serviceBulletinResultTotal}
               </span>
               <div className="flex items-center gap-1.5">
                 <button
@@ -3398,8 +3415,42 @@ function Step3Applicability({
   const applicabilityQuery = useServiceBulletinApplicability(backendId);
   const applicabilityResult = applicabilityQuery.data;
   const [isGeneratingEes, setIsGeneratingEes] = useState(false);
+  const [applicabilityPagination, setApplicabilityPagination] = useState({
+    backendId,
+    page: 1,
+  });
   const isApplicabilityLoading = applicabilityQuery.isLoading;
   const canContinue = Boolean(applicabilityResult) && !isApplicabilityLoading && !isGeneratingEes;
+  const applicabilityTotalEngines = applicabilityResult?.engines.length ?? 0;
+  const applicabilityTotalPages = Math.max(
+    1,
+    Math.ceil(applicabilityTotalEngines / APPLICABILITY_PAGE_SIZE),
+  );
+  const applicabilityPage = Math.min(
+    applicabilityPagination.backendId === backendId
+      ? applicabilityPagination.page
+      : 1,
+    applicabilityTotalPages,
+  );
+  const applicabilityPageStart = (applicabilityPage - 1) * APPLICABILITY_PAGE_SIZE;
+  const paginatedApplicabilityEngines = applicabilityResult?.engines.slice(
+    applicabilityPageStart,
+    applicabilityPageStart + APPLICABILITY_PAGE_SIZE,
+  ) ?? [];
+  const applicabilityRangeStart = applicabilityTotalEngines === 0
+    ? 0
+    : applicabilityPageStart + 1;
+  const applicabilityRangeEnd = Math.min(
+    applicabilityPageStart + paginatedApplicabilityEngines.length,
+    applicabilityTotalEngines,
+  );
+
+  const changeApplicabilityPage = (nextPage: number) => {
+    setApplicabilityPagination({
+      backendId,
+      page: Math.min(Math.max(nextPage, 1), applicabilityTotalPages),
+    });
+  };
 
   const handleGenerateAndContinue = async () => {
     if (!applicabilityResult || isGeneratingEes) return;
@@ -3541,13 +3592,14 @@ function Step3Applicability({
               </tr>
             </thead>
             <tbody>
-              {applicabilityResult.engines.map((engine, index) => {
+              {paginatedApplicabilityEngines.map((engine, index) => {
                 const dataSources = getApplicabilityDataSources(engine);
+                const absoluteIndex = applicabilityPageStart + index;
                 return (
                   <tr
-                    key={`${engine.esn}-${engine.position || index}`}
+                    key={`${engine.esn}-${engine.position || absoluteIndex}`}
                     className="border-b border-border last:border-b-0"
-                    style={{ background: index % 2 === 0 ? "var(--card)" : "var(--muted)" }}
+                    style={{ background: absoluteIndex % 2 === 0 ? "var(--card)" : "var(--muted)" }}
                   >
                     <td className="px-3 py-3 align-top">
                       <div className="font-mono text-[11px] font-semibold text-foreground">{engine.esn || "—"}</div>
@@ -3601,6 +3653,37 @@ function Step3Applicability({
             </tbody>
           </table>
         </div>
+        {applicabilityTotalPages > 1 && (
+          <nav
+            aria-label="SB Engine Applicability pagination"
+            className="flex items-center justify-between gap-3 border-t border-border bg-card px-3 py-2"
+          >
+            <span className="text-[10px] text-muted-foreground">
+              {applicabilityRangeStart}–{applicabilityRangeEnd} of {applicabilityTotalEngines} engines
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => changeApplicabilityPage(applicabilityPage - 1)}
+                disabled={applicabilityPage <= 1}
+                className="flex h-8 items-center gap-1 rounded-lg border border-border bg-background px-2.5 text-[10px] font-semibold text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ChevronLeft size={12} /> Previous
+              </button>
+              <span className="min-w-16 text-center text-[10px] font-semibold text-foreground">
+                {applicabilityPage}/{applicabilityTotalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => changeApplicabilityPage(applicabilityPage + 1)}
+                disabled={applicabilityPage >= applicabilityTotalPages}
+                className="flex h-8 items-center gap-1 rounded-lg border border-border bg-background px-2.5 text-[10px] font-semibold text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Next <ChevronRight size={12} />
+              </button>
+            </div>
+          </nav>
+        )}
       </div>
 
       {/* Summary cards */}
