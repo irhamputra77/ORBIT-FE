@@ -160,7 +160,7 @@ export function SecondEngineerReviewPage({
       ...(statusFilter === "ALL" ? {} : { status: statusFilter }),
     },
     dataSourceReady,
-    reviewerTarget === "SECOND_ENGINEER" ? "history" : "inbox",
+    reviewerTarget === "SECOND_ENGINEER" ? "combined" : "inbox",
   );
   const query = !dataSourceReady
     ? {
