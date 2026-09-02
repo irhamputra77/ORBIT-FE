@@ -66,7 +66,14 @@ export type SbCompliancePagination = {
 
 export type SbComplianceListResponse = {
   data: SbComplianceListItem[];
-  summary: SbComplianceSummary;
+  summary?: Partial<SbComplianceSummary> & {
+    scope?: string;
+    pageTotal?: number;
+  };
+  pageSummary?: Partial<SbComplianceSummary> & {
+    scope?: string;
+    pageTotal?: number;
+  };
   pagination: SbCompliancePagination;
 };
 

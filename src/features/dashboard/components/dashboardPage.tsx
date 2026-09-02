@@ -732,69 +732,6 @@ export default function DashboardPage() {
           </div>
         </section>
       )}
-
-      <section className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <div className="rounded-xl border border-border bg-card p-4 xl:col-span-2">
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <h2 className="text-sm font-semibold text-foreground">
-                Engineering Review Summary
-              </h2>
-              <p className="mt-0.5 text-[10px] text-muted-foreground">
-                Current Service Bulletin and EES workflow indicators.
-              </p>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-            {coverage.map((item) => (
-              <div
-                key={item.label}
-                className="rounded-xl border border-border bg-muted/50 p-3"
-              >
-                <item.icon size={14} style={{ color: item.color }} />
-                <div className="mt-3 text-xl font-bold text-foreground">
-                  {item.value}
-                </div>
-                <div className="mt-0.5 text-[10px] text-muted-foreground">
-                  {item.label}
-                </div>
-              </div>
-            ))}
-          </div>
-
-        </div>
-
-        <div className="rounded-xl border border-border bg-card p-4">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-foreground">
-              Recent Workflow Activity
-            </h2>
-            <Clock3 size={13} className="text-muted-foreground" />
-          </div>
-          <div className="space-y-3">
-            {!loading && workflowActivities.length === 0 && (
-              <div className="py-8 text-center text-[10px] text-muted-foreground">
-                No recent workflow activity.
-              </div>
-            )}
-            {workflowActivities.map((activity) => (
-              <div key={`${activity.type}-${activity.id}`} className="flex items-start gap-2.5">
-                <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 text-[9px] font-bold text-blue-600">
-                  {activity.type}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[11px] leading-relaxed text-foreground">
-                    {activity.action}
-                  </p>
-                  <div className="mt-0.5 text-[9px] text-muted-foreground">
-                    {activity.detail} · {formatDateTime(activity.time)}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
     </div>
   );
 }

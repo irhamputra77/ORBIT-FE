@@ -78,9 +78,7 @@ type FilterDraft = {
   aircraftType: string;
   engineModel: string;
   complianceCategory: string;
-  documentStatus: "" | DocumentStatus;
   complianceStatus: "" | SbComplianceStatus;
-  priority: "" | CompliancePriority;
   sortBy: NonNullable<SbComplianceListParams["sortBy"]>;
   sortOrder: "asc" | "desc";
 };
@@ -91,9 +89,7 @@ const EMPTY_FILTERS: FilterDraft = {
   aircraftType: "",
   engineModel: "",
   complianceCategory: "",
-  documentStatus: "",
   complianceStatus: "",
-  priority: "",
   sortBy: "updatedAt",
   sortOrder: "desc",
 };
@@ -368,13 +364,9 @@ export function SbStatusPage() {
       ...(appliedFilters.complianceCategory && Number.isInteger(category)
         ? { complianceCategory: category }
         : {}),
-      ...(appliedFilters.documentStatus
-        ? { documentStatus: appliedFilters.documentStatus }
-        : {}),
       ...(appliedFilters.complianceStatus
         ? { complianceStatus: appliedFilters.complianceStatus }
         : {}),
-      ...(appliedFilters.priority ? { priority: appliedFilters.priority } : {}),
     };
 
     getSbComplianceStatus(params, controller.signal)
@@ -561,31 +553,6 @@ export function SbStatusPage() {
               className="text-xs"
             />
           </Field>
-          <Field label="Document Status">
-            <FilterSelect
-              value={filterDraft.documentStatus}
-              onChange={(value) =>
-                setFilterDraft((current) => ({
-                  ...current,
-                  documentStatus: value as FilterDraft["documentStatus"],
-                }))
-              }
-            >
-              <option value="">All document statuses</option>
-              {[
-                "DRAFT",
-                "OPEN",
-                "ACTIVE",
-                "SUPERSEDED",
-                "TERMINATED",
-                "CANCELLED",
-                "CLOSED",
-                "CONCURRENT",
-              ].map((status) => (
-                <option key={status} value={status}>{humanize(status)}</option>
-              ))}
-            </FilterSelect>
-          </Field>
           <Field label="Compliance Status">
             <FilterSelect
               value={filterDraft.complianceStatus}
@@ -599,22 +566,6 @@ export function SbStatusPage() {
               <option value="">All compliance statuses</option>
               {["OPEN", "PARTIALLY_COMPLIED", "COMPLIED", "OVERDUE", "NOT_APPLICABLE", "UNKNOWN"].map((status) => (
                 <option key={status} value={status}>{humanize(status)}</option>
-              ))}
-            </FilterSelect>
-          </Field>
-          <Field label="Priority">
-            <FilterSelect
-              value={filterDraft.priority}
-              onChange={(value) =>
-                setFilterDraft((current) => ({
-                  ...current,
-                  priority: value as FilterDraft["priority"],
-                }))
-              }
-            >
-              <option value="">All priorities</option>
-              {["LOW", "MEDIUM", "HIGH", "CRITICAL"].map((priority) => (
-                <option key={priority} value={priority}>{humanize(priority)}</option>
               ))}
             </FilterSelect>
           </Field>

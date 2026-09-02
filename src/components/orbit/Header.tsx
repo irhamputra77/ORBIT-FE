@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Sun, Moon, ChevronDown, Search, X, Mail, FileText, Loader2, Building2, UserRound, ShieldCheck } from 'lucide-react';
 import { AnimatePresence, motion } from 'motion/react';
 import { usePathname } from 'next/navigation';
@@ -9,6 +9,7 @@ import { useEdsUploadTask } from '@/features/database/hooks/useEdsUploadTask';
 import { useSmoothNavigation } from './SmoothNavigationProvider';
 import { NotificationCenter } from '@/features/notifications';
 import { useCurrentUserProfile } from '@/features/user-profile';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 function getInitials(name: string) {
   return name.split(' ').map(w => w[0]).slice(0, 2).join('').toUpperCase();
@@ -28,7 +29,6 @@ export function Header() {
   const svrUpload = useShopVisitReportUploadTask();
   const edsUpload = useEdsUploadTask();
   const [profileOpen, setProfileOpen] = useState(false);
-  const profileRef = useRef<HTMLDivElement>(null);
   const profileQuery = useCurrentUserProfile();
 
   const displayName = profileQuery.data?.name
@@ -49,19 +49,9 @@ export function Header() {
     }
   }, [profileQuery.data?.role, setUserRole]);
 
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
-        setProfileOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
   return (
     <header
-      className="flex items-center gap-3 px-5 py-3 border-b shrink-0"
+      className="flex shrink-0 items-center gap-3 border-b px-5 py-3"
       style={{
         borderColor: 'var(--border)',
         background: darkMode ? 'rgba(7, 9, 26, 0.95)' : 'rgba(242, 245, 255, 0.95)',
@@ -201,10 +191,13 @@ export function Header() {
       </button>
 
       {/* User Avatar — clickable profile panel */}
-      <div ref={profileRef} className="relative ml-1 shrink-0">
-        <div
+      <Popover open={profileOpen} onOpenChange={setProfileOpen}>
+        <PopoverTrigger asChild>
+        <button
+          type="button"
           className="flex min-w-max cursor-pointer items-center gap-2 rounded-lg px-2 py-1 transition-colors hover:bg-accent"
-          onClick={() => setProfileOpen(o => !o)}
+          aria-label="Open user profile"
+          aria-expanded={profileOpen}
         >
           <div
             className="w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-semibold shrink-0"
@@ -221,14 +214,15 @@ export function Header() {
             </div>
           </div>
           <ChevronDown size={12} className="text-muted-foreground" style={{ transform: profileOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.15s' }} />
-        </div>
+        </button>
+        </PopoverTrigger>
 
         {/* Profile Panel */}
-        {profileOpen && (
-          <div
-            className="absolute right-0 top-full mt-2 w-80 rounded-2xl z-50 overflow-hidden"
-            style={{ background: 'var(--card)', border: '1px solid var(--border)', boxShadow: '0 16px 40px rgba(0,0,0,0.15)' }}
-          >
+        <PopoverContent
+          align="end"
+          sideOffset={8}
+          className="z-[110] w-80 overflow-hidden rounded-2xl border-border bg-card p-0 shadow-[0_16px_40px_rgba(0,0,0,0.15)]"
+        >
             {/* My Profile */}
             <div className="p-4" style={{ borderBottom: '1px solid var(--border)' }}>
               <div className="flex items-center justify-between mb-3">
@@ -270,9 +264,8 @@ export function Header() {
               </button>
             </div>
 
-          </div>
-        )}
-      </div>
+        </PopoverContent>
+      </Popover>
     </header>
   );
 }
