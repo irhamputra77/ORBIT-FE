@@ -97,6 +97,7 @@ import {
 import { useEESGeneratorWorkflow } from "../hooks/useEESGeneratorWorkflow";
 import { useEESReviewHistory } from "../hooks/useEESReviewHistory";
 import {
+  getAllManagerApprovalCandidates,
   getApprovalCandidates,
   submitEesForApproval,
   type ApprovalCandidate,
@@ -4133,11 +4134,13 @@ function Step4PreviewOnlyReview({
       setApproversError(null);
 
       try {
-        const candidates = await getApprovalCandidates(
-          approvalOperator,
-          role,
-          controller.signal,
-        );
+        const candidates = role === "MANAGER"
+          ? await getAllManagerApprovalCandidates(controller.signal)
+          : await getApprovalCandidates(
+            approvalOperator,
+            role,
+            controller.signal,
+          );
         if (controller.signal.aborted) return;
         setBackendApprovers(candidates);
         setSelectedApproverId(currentId => (
@@ -4793,7 +4796,7 @@ function Step4PreviewOnlyReview({
               </span>
               <span className="text-[10px] text-muted-foreground">
                 {approvalOperator === "CITILINK"
-                  ? "EES using the Citilink template is routed directly to a Citilink Manager."
+                  ? "EES using the Citilink template is routed directly to a Manager."
                   : approvalTargetRole === "SECOND_ENGINEER"
                     ? "Garuda Category 4 and above is routed to a Second Engineer."
                     : "Garuda Category 1–3 is routed directly to a Manager."}
@@ -4826,7 +4829,7 @@ function Step4PreviewOnlyReview({
                 </option>
                 {eligibleApprovers.map(approver => (
                   <option key={approver.id} value={approver.id}>
-                    {approver.name} · {approver.unit} · {approver.employeeNumber}
+                    {approver.name} · {approver.operator.name} · {approver.unit} · {approver.employeeNumber}
                   </option>
                 ))}
               </select>
@@ -4835,8 +4838,7 @@ function Step4PreviewOnlyReview({
               )}
               {!approversLoading && !approversError && eligibleApprovers.length === 0 && (
                 <p className="mt-2 text-[10px] font-medium text-amber-600">
-                  No active {approvalOperator === "CITILINK" ? "Citilink " : ""}
-                  {approvalTargetRole === "SECOND_ENGINEER" ? "Second Engineer" : "Manager"} was returned by the user directory.
+                  No active {approvalTargetRole === "SECOND_ENGINEER" ? "Second Engineer" : "Manager"} was returned by the user directory.
                 </p>
               )}
               {selectedApprover && (

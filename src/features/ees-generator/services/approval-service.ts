@@ -39,6 +39,25 @@ export async function getApprovalCandidates(
   return Array.isArray(response.data.data) ? response.data.data : [];
 }
 
+export async function getAllManagerApprovalCandidates(signal?: AbortSignal) {
+  const results = await Promise.allSettled([
+    getApprovalCandidates("GARUDA", "MANAGER", signal),
+    getApprovalCandidates("CITILINK", "MANAGER", signal),
+  ]);
+  const successfulResults = results.flatMap(result => (
+    result.status === "fulfilled" ? result.value : []
+  ));
+
+  if (successfulResults.length === 0 && results.every(result => result.status === "rejected")) {
+    const firstFailure = results.find(result => result.status === "rejected");
+    throw firstFailure?.reason;
+  }
+
+  return Array.from(
+    new Map(successfulResults.map(candidate => [candidate.id, candidate])).values(),
+  ).sort((left, right) => left.name.localeCompare(right.name));
+}
+
 export async function submitEesForApproval({
   eesId,
   assignedToId,
