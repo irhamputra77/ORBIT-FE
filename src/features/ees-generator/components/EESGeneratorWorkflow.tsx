@@ -4134,13 +4134,11 @@ function Step4PreviewOnlyReview({
       setApproversError(null);
 
       try {
-        const candidates = role === "MANAGER"
-          ? await getAllManagerApprovalCandidates(controller.signal)
-          : await getApprovalCandidates(
-            approvalOperator,
-            role,
-            controller.signal,
-          );
+        const candidates = await getApprovalCandidates(
+          approvalOperator,
+          role,
+          controller.signal,
+        );
         if (controller.signal.aborted) return;
         setBackendApprovers(candidates);
         setSelectedApproverId(currentId => (
