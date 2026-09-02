@@ -92,7 +92,9 @@ export function getMissingCitilinkRequiredFields(
 ) {
   const sources = citilinkSources(ees);
   const fieldValue = (key: string, ...fallbackKeys: string[]) => {
-    if (Object.prototype.hasOwnProperty.call(ees, key)) return ees[key];
+    if (Object.prototype.hasOwnProperty.call(ees, key) && hasValue(ees[key])) {
+      return ees[key];
+    }
     return getCitilinkField(sources, key, ...fallbackKeys);
   };
   const evaluationResult = fieldValue("evaluationResult", "evaluation_result");
@@ -108,7 +110,7 @@ export function getMissingCitilinkRequiredFields(
     !hasValue(fieldValue("unitConcern") ?? ["TEA-2"]) ? "Unit Concern" : null,
     !hasValue(fieldValue("bulletinNumber")) ? "Bulletin No." : null,
     !hasValue(fieldValue("bulletinType") ?? "Service Bulletin") ? "Bull Type" : null,
-    !hasValue(fieldValue("subject", "description")) ? "Subject" : null,
+    !hasValue(fieldValue("subject", "title", "description")) ? "Subject" : null,
     !hasValue(fieldValue("aircraftType", "fleet")) ? "Aircraft Type" : null,
     !hasValue(
       normalizeReasonOfEvaluation(

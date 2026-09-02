@@ -4072,13 +4072,11 @@ function Step4PreviewOnlyReview({
   const [editGECategory, setEditGECategory] = useState(ees?.geCategory || "");
   const [editGEImpact, setEditGEImpact] = useState(ees?.geImpact || "");
   const [geOverrideReason, setGEOverrideReason] = useState(ees?.geOverrideAudit?.reason || "");
-  const eesOperator = ees?.eesTemplate === "citilink"
-    ? "citilink"
-    : ees?.eesTemplate === "garuda"
-      ? "garuda"
-      : getAirline(ees?.fleet || "") === "Citilink"
-        ? "citilink"
-        : "garuda";
+  const selectedEesTemplate = normalizeManualUploadTemplate(ees?.eesTemplate)
+    || normalizeManualUploadTemplate(ees?.selectedSB?.eesTemplate)
+    || normalizeManualUploadTemplate(ees?.generatedEesDocument?.eesTemplate);
+  const eesOperator = selectedEesTemplate
+    || (getAirline(ees?.fleet || "") === "Citilink" ? "citilink" : "garuda");
   const sourceApprovalOperator = normalizeApprovalOperator(
     ees?.generatedEesDocument?.serviceBulletin?.operator?.code,
     ees?.generatedEesDocument?.serviceBulletin?.operator?.name,
@@ -4088,8 +4086,13 @@ function Step4PreviewOnlyReview({
     ees?.operatorCode,
     ees?.operatorName,
   );
-  const approvalOperator = sourceApprovalOperator
-    ?? (eesOperator === "citilink" ? "CITILINK" : "GARUDA");
+  // The template selected in Step 2 is the source of truth for approval routing.
+  // A Citilink template must be sent to a Citilink Manager even when the source
+  // SB is owned by another operator.
+  const approvalOperator = selectedEesTemplate
+    ? selectedEesTemplate === "citilink" ? "CITILINK" : "GARUDA"
+    : sourceApprovalOperator
+      ?? (eesOperator === "citilink" ? "CITILINK" : "GARUDA");
   const approvalCategory = String(
     ees?.categorySystem === "GE"
       ? editGECategory || ees?.eesCategory || ""
@@ -4102,13 +4105,10 @@ function Step4PreviewOnlyReview({
   const [backendApprovers, setBackendApprovers] = useState<ApprovalCandidate[]>([]);
   const [approversLoading, setApproversLoading] = useState(true);
   const [approversError, setApproversError] = useState<string | null>(null);
-  const eligibleApprovers = backendApprovers.filter(approver => (
-    normalizeApprovalOperator(
-      typeof approver.operator === "string" ? approver.operator : approver.operator.code,
-      typeof approver.operator === "string" ? undefined : approver.operator.name,
-    )
-    === approvalOperator
-  ));
+  // The backend endpoint already applies the requested operator and role filters.
+  // Filtering its result again on the client can incorrectly hide a valid Manager
+  // when the operator representation differs (for example GA/QG vs full names).
+  const eligibleApprovers = backendApprovers.filter(approver => approver.active !== false);
   const [selectedApproverId, setSelectedApproverId] = useState(
     String(ees?.approvalAssigneeId || ""),
   );
@@ -4793,7 +4793,7 @@ function Step4PreviewOnlyReview({
               </span>
               <span className="text-[10px] text-muted-foreground">
                 {approvalOperator === "CITILINK"
-                  ? "Citilink-owned EES is routed directly to a Manager."
+                  ? "EES using the Citilink template is routed directly to a Citilink Manager."
                   : approvalTargetRole === "SECOND_ENGINEER"
                     ? "Garuda Category 4 and above is routed to a Second Engineer."
                     : "Garuda Category 1–3 is routed directly to a Manager."}
@@ -4832,6 +4832,12 @@ function Step4PreviewOnlyReview({
               </select>
               {approversError && (
                 <p className="mt-2 text-[10px] font-medium text-red-600">{approversError}</p>
+              )}
+              {!approversLoading && !approversError && eligibleApprovers.length === 0 && (
+                <p className="mt-2 text-[10px] font-medium text-amber-600">
+                  No active {approvalOperator === "CITILINK" ? "Citilink " : ""}
+                  {approvalTargetRole === "SECOND_ENGINEER" ? "Second Engineer" : "Manager"} was returned by the user directory.
+                </p>
               )}
               {selectedApprover && (
                 <div className="mt-2 rounded-lg bg-muted px-3 py-2 text-[10px] text-muted-foreground">
@@ -5329,14 +5335,20 @@ function EESGeneratorWorkflowContent({
         ?? 1;
       const sourceSbId = (resumeSourceSbId || storedProgress?.sourceSbId || "").trim();
 
-      if (storedProgress?.stepData && Object.keys(storedProgress.stepData).length > 0) {
-        resumeWorkflow(targetStep, storedProgress.stepData);
-        setIsRestoringWorkflow(false);
-        return;
-      }
+      const storedStepData = storedProgress?.stepData
+        && Object.keys(storedProgress.stepData).length > 0
+        ? storedProgress.stepData
+        : null;
 
       if (!sourceSbId) {
-        toast.error("Source Service Bulletin tidak tersedia untuk melanjutkan workflow.");
+        if (storedStepData) {
+          resumeWorkflow(targetStep, storedStepData);
+          toast.warning(
+            "Source Service Bulletin tidak tersedia. Workflow dipulihkan dari draft lokal.",
+          );
+        } else {
+          toast.error("Source Service Bulletin tidak tersedia untuk melanjutkan workflow.");
+        }
         setIsRestoringWorkflow(false);
         return;
       }
@@ -5359,19 +5371,38 @@ function EESGeneratorWorkflowContent({
         const inferredTemplate = normalizeManualUploadTemplate(eesResult.data.eesTemplate)
           || normalizeManualUploadTemplate(selectedSB.eesTemplate)
           || (selectedSB.operatorCode?.toUpperCase() === "QG" ? "citilink" : "garuda");
+        const storedStep1 = storedStepData?.step1
+          && typeof storedStepData.step1 === "object"
+          && !Array.isArray(storedStepData.step1)
+          ? storedStepData.step1 as Record<string, unknown>
+          : {};
+        const storedEes = storedStepData?.ees
+          && typeof storedStepData.ees === "object"
+          && !Array.isArray(storedStepData.ees)
+          ? storedStepData.ees as Record<string, unknown>
+          : {};
         const step1 = {
+          ...storedStep1,
           selectedSB,
           generatedEesDocument: eesResult.data,
-          aiSummary: aiSummaryResult,
-          summarized: Boolean(aiSummaryResult || selectedSB.complianceCategory),
-          fleet: eesResult.data.aircraftType || selectedSB.fleet,
-          eesNumber: eesResult.data.eesNumber,
-          tdr: eesResult.data.eesNumber,
-          eesTemplate: inferredTemplate,
+          aiSummary: aiSummaryResult ?? storedStep1.aiSummary ?? null,
+          summarized: Boolean(
+            aiSummaryResult
+            || storedStep1.aiSummary
+            || selectedSB.complianceCategory,
+          ),
+          fleet: eesResult.data.aircraftType || selectedSB.fleet || storedStep1.fleet || "",
+          eesNumber: eesResult.data.eesNumber || storedStep1.eesNumber || "",
+          tdr: eesResult.data.eesNumber || storedStep1.tdr || "",
+          eesTemplate: normalizeManualUploadTemplate(storedStep1.eesTemplate)
+            || inferredTemplate,
           isUnsyncedSB: false,
         };
         const restoredEes = mergeGeneratedEesIntoWorkflow({
           ...step1,
+          ...storedEes,
+          selectedSB,
+          generatedEesDocument: eesResult.data,
           bulletinNumber: selectedSB.id,
           bulletinRevision: selectedSB.revision,
           engineType: selectedSB.engineType,
@@ -5383,6 +5414,7 @@ function EESGeneratorWorkflowContent({
           isManualCategory: !selectedSB.complianceCategory || selectedSB.aiConfidence === undefined,
         }, eesResult.data);
         const restoredData = {
+          ...(storedStepData || {}),
           step1,
           ...(targetStep >= 3 ? { ees: restoredEes } : {}),
           ...(targetStep >= 4 ? { generatedEes: eesResult.data } : {}),
@@ -5396,11 +5428,18 @@ function EESGeneratorWorkflowContent({
           stepData: restoredData,
         });
       } catch (caughtError) {
-        toast.error(
-          caughtError instanceof Error
-            ? caughtError.message
-            : "Workflow EES tidak dapat dipulihkan.",
-        );
+        if (storedStepData) {
+          resumeWorkflow(targetStep, storedStepData);
+          toast.warning(
+            "Data terbaru dari backend belum dapat dimuat. Workflow dipulihkan dari draft lokal.",
+          );
+        } else {
+          toast.error(
+            caughtError instanceof Error
+              ? caughtError.message
+              : "Workflow EES tidak dapat dipulihkan.",
+          );
+        }
       } finally {
         if (restoreRequestRef.current === requestId) setIsRestoringWorkflow(false);
       }
