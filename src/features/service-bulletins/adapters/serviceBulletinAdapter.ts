@@ -317,6 +317,7 @@ function mapReviewAction(value: unknown): ServiceBulletinReviewAction | null {
   return {
     id: String(value.id ?? ""),
     action: String(value.action ?? ""),
+    actorId: nullableString(actor.id ?? value.actorId),
     actorName: nullableString(actor.username ?? actor.email ?? value.actorName),
     actorRole: nullableString(value.actorRole ?? actor.role),
     comment: nullableString(value.comment),
@@ -332,6 +333,9 @@ export function mapServiceBulletin(value: unknown): ServiceBulletinViewModel {
   const createdBy = isRecord(sb.createdBy) ? sb.createdBy : {};
   const operator = isRecord(sb.operator) ? sb.operator : {};
   const generatedEes = isRecord(sb.generatedEes) ? sb.generatedEes : {};
+  const generatedApproval = isRecord(generatedEes.approval)
+    ? generatedEes.approval
+    : {};
   const evaluations = Array.isArray(generatedEes.evaluations)
     ? generatedEes.evaluations.map(mapEvaluation).filter((item): item is ServiceBulletinEesEvaluation => item !== null)
     : [];
@@ -418,6 +422,16 @@ export function mapServiceBulletin(value: unknown): ServiceBulletinViewModel {
     eesNumber: nullableString(generatedEes.eesNumber),
     generatedEesId: nullableString(generatedEes.id),
     eesReviewStatus: nullableString(generatedEes.reviewStatus),
+    eesApprovalStatus: nullableString(generatedApproval.status),
+    eesSubmittedAt: nullableString(
+      generatedApproval.submittedAt ?? generatedEes.submittedAt,
+    ),
+    eesHasApprovalAssignment: Boolean(
+      generatedApproval.id
+      || generatedApproval.assignedToId
+      || generatedApproval.assignedTo
+      || generatedApproval.currentAssignee,
+    ),
     eesCreatedAt: nullableString(generatedEes.createdAt),
     recommendedAction: nullableString(engineeringRec.recommendedAction),
     priorityLevel: nullableString(engineeringRec.priorityLevel),

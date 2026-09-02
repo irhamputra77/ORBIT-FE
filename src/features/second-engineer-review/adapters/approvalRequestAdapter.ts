@@ -32,6 +32,21 @@ function nonNegativeInteger(value: unknown, fallback: number) {
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
 }
 
+const TERMINAL_REVIEW_STATUSES = new Set([
+  "APPROVED",
+  "REJECTED",
+  "RETURNED",
+]);
+
+function approvalStatus(value: Record<string, unknown>, eesDocument: Record<string, unknown>) {
+  // Reviewer inbox records expose `status`, while /approvals/history exposes
+  // the completed decision as `action` on ReviewAction.
+  return text(
+    value.status,
+    text(value.action, text(eesDocument.reviewStatus, "PENDING")),
+  ).toUpperCase();
+}
+
 export function mapApprovalRequest(value: unknown): ApprovalReviewItem | null {
   if (!isRecord(value)) return null;
 
@@ -60,19 +75,25 @@ export function mapApprovalRequest(value: unknown): ApprovalReviewItem | null {
 
   const submittedById = optionalText(value.submittedById);
   const assignedToId = optionalText(value.assignedToId);
+  const reviewStatus = approvalStatus(value, eesDocument);
+  const actionCreatedAt = text(value.createdAt);
+  const actor = isRecord(value.actor) ? value.actor : {};
 
   return {
     approvalId,
     eesId,
     approvalLevel: nonNegativeInteger(value.approvalLevel, 0),
-    reviewStatus: text(
-      value.status,
-      text(eesDocument.reviewStatus, "PENDING"),
-    ).toUpperCase(),
+    reviewStatus,
     submittedById,
     assignedToId,
-    submittedAt: text(value.submittedAt, text(eesDocument.createdAt)),
-    reviewedAt: optionalText(value.reviewedAt),
+    submittedAt: text(
+      value.submittedAt,
+      text(eesDocument.createdAt, actionCreatedAt),
+    ),
+    reviewedAt: optionalText(
+      value.reviewedAt
+      ?? (TERMINAL_REVIEW_STATUSES.has(reviewStatus) ? actionCreatedAt : null),
+    ),
     comment: optionalText(value.comment),
     eesNumber: text(eesDocument.eesNumber, "—"),
     sourceSbId: text(
@@ -102,7 +123,12 @@ export function mapApprovalRequest(value: unknown): ApprovalReviewItem | null {
     operatorId: optionalText(sourceSb.operatorId ?? operator.id),
     operatorCode: optionalText(operator.code),
     operatorName: optionalText(operator.name),
-    createdByName: submittedById,
+    createdByName: optionalText(
+      value.submittedByName
+      ?? eesDocument.createdByName
+      ?? actor.username
+      ?? submittedById,
+    ),
     assignedToName: assignedToId,
     assignedToRole: null,
     hasGarudaPdf: Boolean(optionalText(eesDocument.storedGarudaPdfPath)),

@@ -45,6 +45,11 @@ function mapApprovalHistoryItem(value: unknown): ServiceBulletinReviewAction | n
   return {
     id: String(value.id ?? ""),
     action: String(value.action ?? value.status ?? ""),
+    actorId: nullableString(
+      actor.id
+      ?? value.actorId
+      ?? value.reviewerId,
+    ),
     actorName: nullableString(
       actor.username
       ?? actor.email

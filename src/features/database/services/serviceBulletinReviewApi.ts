@@ -15,6 +15,7 @@ function mapReviewAction(value: unknown): ServiceBulletinReviewAction | null {
   return {
     id: String(value.id ?? ""),
     action: String(value.action ?? ""),
+    actorId: nullableString(actor.id ?? value.actorId),
     actorName: nullableString(actor.username ?? actor.email ?? value.actorName),
     actorRole: nullableString(value.actorRole ?? actor.role),
     comment: nullableString(value.comment),

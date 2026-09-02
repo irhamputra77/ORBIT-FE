@@ -58,6 +58,7 @@ export interface ServiceBulletinRelations {
 export interface ServiceBulletinReviewAction {
   id: string;
   action: string;
+  actorId: string | null;
   actorName: string | null;
   actorRole: string | null;
   comment: string | null;
@@ -118,6 +119,9 @@ export interface ServiceBulletinViewModel {
   eesNumber: string | null;
   generatedEesId: string | null;
   eesReviewStatus: string | null;
+  eesApprovalStatus: string | null;
+  eesSubmittedAt: string | null;
+  eesHasApprovalAssignment: boolean;
   eesCreatedAt: string | null;
   recommendedAction: string | null;
   priorityLevel: string | null;
@@ -156,6 +160,13 @@ export interface ServiceBulletinListApiItem {
     id: string;
     eesNumber: string;
     reviewStatus: string | null;
+    submittedAt?: string | null;
+    approval?: {
+      id?: string | null;
+      status?: string | null;
+      submittedAt?: string | null;
+      assignedToId?: string | null;
+    } | null;
     createdAt: string | null;
   } | null;
 }

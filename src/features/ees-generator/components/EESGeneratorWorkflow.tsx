@@ -265,6 +265,9 @@ type DBServiceBulletin = {
   generatedEesId?: string;
   eesNumber?: string;
   eesReviewStatus: string;
+  eesApprovalStatus: string;
+  eesSubmittedAt?: string;
+  eesHasApprovalAssignment: boolean;
   eesCreatedAt?: string;
   recommendedAction: string;
   priorityLevel: string;
@@ -443,6 +446,9 @@ function toWorkflowServiceBulletin(sb: ServiceBulletinViewModel): DBServiceBulle
     generatedEesId: sb.generatedEesId || "",
     eesNumber: sb.eesNumber || "",
     eesReviewStatus: sb.eesReviewStatus || "",
+    eesApprovalStatus: sb.eesApprovalStatus || "",
+    eesSubmittedAt: sb.eesSubmittedAt || "",
+    eesHasApprovalAssignment: sb.eesHasApprovalAssignment,
     eesCreatedAt: sb.eesCreatedAt || "",
     recommendedAction: sb.recommendedAction || "",
     priorityLevel: sb.priorityLevel || "",
@@ -493,6 +499,41 @@ function getAiConfidence(sb?: DBServiceBulletin | null) {
 
 function isGeneratedServiceBulletin(sb: DBServiceBulletin) {
   return sb.draftStatus.toUpperCase() === "GENERATED" || Boolean(sb.generatedEesId);
+}
+
+const COMPLETED_EES_REVIEW_STATUSES = new Set([
+  "APPROVED",
+  "REJECTED",
+  "RETURNED",
+  "COMPLETED",
+]);
+
+const SUBMITTED_EES_REVIEW_STATUSES = new Set([
+  "SUBMITTED",
+  "IN_REVIEW",
+  "UNDER_REVIEW",
+  "PARTIALLY_APPROVED",
+]);
+
+/**
+ * OCR draft status and the mere existence of an EES document are intentionally
+ * excluded here. A newly uploaded SB may already have `draftStatus=GENERATED`
+ * or a draft EES with `reviewStatus=PENDING` before it is submitted.
+ */
+function hasEnteredEesApprovalWorkflow(
+  sb: DBServiceBulletin,
+  submittedSourceSbIds: ReadonlySet<string>,
+) {
+  const backendId = sb.backendId?.trim();
+  if (backendId && submittedSourceSbIds.has(backendId)) return true;
+  if (sb.eesSubmittedAt || sb.eesHasApprovalAssignment) return true;
+
+  const approvalStatus = sb.eesApprovalStatus.trim().toUpperCase();
+  if (approvalStatus && approvalStatus !== "DRAFT") return true;
+
+  const reviewStatus = sb.eesReviewStatus.trim().toUpperCase();
+  return COMPLETED_EES_REVIEW_STATUSES.has(reviewStatus)
+    || SUBMITTED_EES_REVIEW_STATUSES.has(reviewStatus);
 }
 
 function isMissingFleetType(value: unknown) {
@@ -994,10 +1035,14 @@ function SBContextPanel({ sb, category, collapsed, onToggle, docViewerOpen, onTo
 
 function Step1SelectSB({
   saved,
+  submittedSourceSbIds,
+  submissionStatusLoading,
   onNext,
   onSave,
 }: {
   saved: any;
+  submittedSourceSbIds: ReadonlySet<string>;
+  submissionStatusLoading: boolean;
   onNext: (d: any) => void;
   onSave: (d: any) => void;
 }) {
@@ -1025,6 +1070,8 @@ function Step1SelectSB({
   );
   const uploadServiceBulletin = useUploadServiceBulletin();
   const [selectedSB, setSelectedSB] = useState<DBServiceBulletin | null>(saved?.selectedSB || null);
+  const [recentlyUploadedServiceBulletins, setRecentlyUploadedServiceBulletins] =
+    useState<DBServiceBulletin[]>([]);
   const [selectedEesDocument, setSelectedEesDocument] =
     useState<ServiceBulletinEesDocument | null>(saved?.generatedEesDocument || null);
   const [summarizing, setSummarizing] = useState(false);
@@ -1085,7 +1132,23 @@ function Step1SelectSB({
     () => serviceBulletinQuery.items.map(toWorkflowServiceBulletin),
     [serviceBulletinQuery.items],
   );
-  const allSBs = backendServiceBulletins;
+  const allSBs = useMemo(() => {
+    const uploadedItems = recentlyUploadedServiceBulletins.map(uploaded => {
+      const fresh = backendServiceBulletins.find(candidate => (
+        (uploaded.backendId && candidate.backendId === uploaded.backendId)
+        || candidate.id === uploaded.id
+      ));
+      return fresh ? mergeUploadedServiceBulletin(uploaded, fresh) : uploaded;
+    });
+
+    return [
+      ...uploadedItems,
+      ...backendServiceBulletins.filter(sb => !recentlyUploadedServiceBulletins.some(uploaded => (
+        (uploaded.backendId && uploaded.backendId === sb.backendId)
+        || uploaded.id === sb.id
+      ))),
+    ];
+  }, [backendServiceBulletins, recentlyUploadedServiceBulletins]);
   const selectableFleetTypes = useMemo(
     () => [...new Set([
       ...aircraftTypes,
@@ -1107,10 +1170,14 @@ function Step1SelectSB({
     ...(filterEngine ? [filterEngine] : []),
   ])].sort((left, right) => left.localeCompare(right));
   const visibleSBs = allSBs.filter((sb) => {
+    const isAlreadySubmitted = hasEnteredEesApprovalWorkflow(
+      sb,
+      submittedSourceSbIds,
+    );
     const matchesFleet = !filterFleet || sb.fleet === filterFleet;
     const matchesEngine = !filterEngine || sb.engineType === filterEngine;
     const matchesSync = !filterSync || sb.syncStatus === filterSync;
-    return matchesFleet && matchesEngine && matchesSync;
+    return !isAlreadySubmitted && matchesFleet && matchesEngine && matchesSync;
   });
   const serviceBulletinResultTotal = requiresClientFiltering
     ? visibleSBs.length
@@ -1190,15 +1257,19 @@ function Step1SelectSB({
       });
     } catch {
       if (detailRequestVersion.current !== requestVersion) return;
-      setSelectedSB(null);
       setSelectedEesDocument(null);
       onSave({
-        selectedSB: null,
+        selectedSB: sb,
         generatedEesDocument: null,
         summarized: false,
+        eesNumber: sb.eesNumber?.trim() || "",
+        tdr: sb.eesNumber?.trim() || "",
+        fleet: isMissingFleetType(sb.fleet) ? "" : sb.fleet,
         isUnsyncedSB: false,
       });
-      toast.error("Detail Service Bulletin tidak dapat dimuat. Silakan pilih kembali.");
+      toast.warning(
+        "Ringkasan Service Bulletin tetap dipilih. Detail terbaru belum tersedia; coba lanjutkan atau refresh beberapa saat lagi.",
+      );
     } finally {
       if (detailRequestVersion.current === requestVersion) setDetailLoadingId(null);
     }
@@ -1310,6 +1381,12 @@ function Step1SelectSB({
       tdr: "",
       tdrRef: "",
     };
+    setRecentlyUploadedServiceBulletins(previous => [
+      uploadedSB,
+      ...previous.filter(item => (
+        item.backendId !== uploadedSB.backendId && item.id !== uploadedSB.id
+      )),
+    ]);
     setSummarized(result.aiCompleted);
     void loadSelectedSB(uploadedSB);
     serviceBulletinQuery.retry();
@@ -1479,8 +1556,10 @@ function Step1SelectSB({
     setShowContinueRequirementsModal(false);
   };
 
-  const showInitialLoading = serviceBulletinQuery.isLoading
-    && serviceBulletinQuery.items.length === 0;
+  const showInitialLoading = (
+    serviceBulletinQuery.isLoading
+    && serviceBulletinQuery.items.length === 0
+  ) || submissionStatusLoading;
 
   if (showInitialLoading) {
     return <Step1SelectionLoadingState />;
@@ -2040,16 +2119,16 @@ function Step1SelectSB({
               </motion.div>
             );
           })}
-          {!serviceBulletinQuery.isLoading && !serviceBulletinQuery.error && serviceBulletinResultTotal === 0 && (
+          {!serviceBulletinQuery.isLoading && !serviceBulletinQuery.error && paginatedServiceBulletins.length === 0 && (
             <motion.div
               initial={{ opacity: 0, scale: 0.98 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ duration: 0.28 }}
               className="px-3 py-8 text-center text-[11px] text-muted-foreground"
             >
-              {serviceBulletinQuery.items.length === 0
+              {serviceBulletinQuery.items.length === 0 && recentlyUploadedServiceBulletins.length === 0
                 ? "No Service Bulletins were returned by the API."
-                : "No Service Bulletins match the selected filters."}
+                : "No unsubmitted Service Bulletins match the selected filters on this page."}
             </motion.div>
           )}
         </div>
@@ -2784,6 +2863,13 @@ function Step2SelectCategory({
     } : {}),
     remarks,
     ...manualDraft,
+    // Citilink Subject is sourced from the SB title for both AI-assisted and
+    // manual categories. Previously it was only initialized in the manual
+    // branch, so an AI-classified Citilink SB failed Step 2 validation even
+    // though its title was already displayed in the preview.
+    subject: typeof manualDraft.subject === "string" && manualDraft.subject.trim()
+      ? manualDraft.subject
+      : sb?.title || activeGeneratedEesDocument?.serviceBulletin?.title || "",
     // The active template is the source of truth. A restored/manual draft may
     // still contain the previous template and must never override the choice.
     eesTemplate: selectedTemplate,
@@ -5192,6 +5278,15 @@ function EESGeneratorWorkflowContent({
   const [timelineMinimized, setTimelineMinimized] = useState(false);
   const [isRestoringWorkflow, setIsRestoringWorkflow] = useState(Boolean(resumeEesId));
   const eesReviewHistory = useEESReviewHistory();
+  const submittedSourceSbIds = useMemo(() => new Set(
+    eesReviewHistory.records
+      .filter(record => (
+        record.hasApprovalAssignment
+        || ["In Review", "Approved", "Rejected", "Returned"].includes(record.status)
+      ))
+      .map(record => record.sourceSbId)
+      .filter(Boolean),
+  ), [eesReviewHistory.records]);
   const {
     currentStep,
     stepData,
@@ -5568,6 +5663,10 @@ function EESGeneratorWorkflowContent({
           {currentStep === 1 && (
               <Step1SelectSB
                 saved={stepData.step1}
+                submittedSourceSbIds={submittedSourceSbIds}
+                submissionStatusLoading={
+                  eesReviewHistory.isLoading && eesReviewHistory.records.length === 0
+                }
                 onSave={(d: any) => setStepData((p: any) => ({ ...p, step1: d }))}
                 onNext={(d: any) => { setStepData((p: any) => ({ ...p, step1: d })); advance(1); }}
               />

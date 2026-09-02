@@ -69,16 +69,6 @@ export function Header() {
         height: 56,
       }}
     >
-      {/* Global Search Trigger */}
-      <button
-        onClick={() => setGlobalSearchOpen(true)}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-muted-foreground hover:text-foreground transition-colors"
-        style={{ background: 'var(--input-background)', border: '1px solid var(--border)', minWidth: 260 }}
-      >
-        <Search size={14} />
-        <span className="text-xs flex-1 text-left">Search engines, SB, EO, faults…</span>
-        <kbd className="text-[10px] px-1.5 py-0.5 rounded border border-border text-muted-foreground font-mono">⌘K</kbd>
-      </button>
 
       <div className="flex-1" />
 

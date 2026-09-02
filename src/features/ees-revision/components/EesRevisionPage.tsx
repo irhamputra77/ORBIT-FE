@@ -20,11 +20,7 @@ import { toast } from "sonner";
 
 import { useSmoothNavigation } from "@/components/orbit/SmoothNavigationProvider";
 import { EESTemplatePreview } from "@/features/ees-generator/components/EESTemplatePreview";
-import {
-  getApprovalCandidates,
-  resubmitEesForApproval,
-  type ApprovalCandidate,
-} from "@/features/ees-generator/services/approval-service";
+import { resubmitEesForApproval } from "@/features/ees-generator/services/approval-service";
 import { createValidatedEesPayload } from "@/features/ees-generator/services/ees-payload";
 import {
   getEesApprovalState,
@@ -65,7 +61,6 @@ type RevisionForm = {
   evaluations: RevisionEvaluation[];
 };
 
-const inputClass = "mt-1.5 w-full rounded-xl border border-border bg-background px-3 py-2.5 text-xs text-foreground outline-none transition-colors focus:border-blue-600";
 const labelClass = "text-[10px] font-bold uppercase tracking-wider text-muted-foreground";
 
 function toList(value: unknown): string[] {
@@ -158,11 +153,8 @@ export function EesRevisionPage({
   const [approval, setApproval] = useState<EesApprovalState | null>(null);
   const [form, setForm] = useState<RevisionForm | null>(null);
   const [templateOverrides, setTemplateOverrides] = useState<Record<string, unknown>>({});
-  const [candidates, setCandidates] = useState<ApprovalCandidate[]>([]);
-  const [assignedToId, setAssignedToId] = useState("");
   const [signature, setSignature] = useState<File | undefined>();
   const [loading, setLoading] = useState(true);
-  const [candidateLoading, setCandidateLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -229,44 +221,6 @@ export function EesRevisionPage({
     }
     return /A320|ATR/i.test(form?.aircraftType || "") ? "citilink" as const : "garuda" as const;
   }, [bulletin?.eesTemplate, document, form?.aircraftType]);
-  const reviewerRole = template === "citilink"
-    ? "MANAGER" as const
-    : Number(form?.complianceCategory || 0) <= 3
-      ? "MANAGER" as const
-      : "ENGINEER" as const;
-  const candidateScope = form
-    ? `${template}:${reviewerRole}:${form.complianceCategory}`
-    : "";
-
-  useEffect(() => {
-    if (!candidateScope) return;
-    const controller = new AbortController();
-    Promise.resolve()
-      .then(() => {
-        if (controller.signal.aborted) return [];
-        setCandidateLoading(true);
-        setAssignedToId("");
-        return getApprovalCandidates(
-          template === "citilink" ? "CITILINK" : "GARUDA",
-          reviewerRole,
-          controller.signal,
-        );
-      })
-      .then(result => {
-        if (!controller.signal.aborted) setCandidates(result);
-      })
-      .catch(caught => {
-        if (!axios.isCancel(caught)) {
-          toast.error(apiMessage(caught, "Daftar reviewer tidak dapat dimuat."));
-          setCandidates([]);
-        }
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setCandidateLoading(false);
-      });
-    return () => controller.abort();
-  }, [candidateScope, reviewerRole, template]);
-
   const revisionInstructions = useMemo(
     () => (approval?.history || [])
       .filter(action => ["REJECTED", "RETURNED"].includes(action.action.toUpperCase()))
@@ -274,7 +228,7 @@ export function EesRevisionPage({
       .reverse(),
     [approval?.history],
   );
-
+  const automaticReviewer = revisionInstructions[0] || null;
   const previewEes = useMemo<Record<string, unknown>>(() => {
     if (!form || !document || !bulletin) return {};
     const firstEvaluation = form.evaluations[0];
@@ -455,8 +409,8 @@ export function EesRevisionPage({
 
   async function resubmit() {
     if (submitting || !form) return;
-    if (!assignedToId) {
-      toast.error(`Pilih ${reviewerRole === "MANAGER" ? "Manager" : "Second Engineer"} tujuan.`);
+    if (!automaticReviewer?.actorId) {
+      toast.error("Reviewer sebelumnya tidak ditemukan pada riwayat approval. Muat ulang data approval lalu coba lagi.");
       return;
     }
     if (template === "garuda" && !signature) {
@@ -469,7 +423,7 @@ export function EesRevisionPage({
       if (!latest) return;
       await resubmitEesForApproval({
         eesId: latest.id,
-        assignedToId,
+        assignedToId: automaticReviewer.actorId,
         signature,
       });
       toast.success("Revisi berhasil dikirim ulang untuk approval.");
@@ -592,22 +546,31 @@ export function EesRevisionPage({
 
       <footer className="mt-3 shrink-0 rounded-xl border border-blue-300 bg-card px-4 py-3 shadow-lg">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-end">
-          <label className={`${labelClass} min-w-0 flex-1`}>Forward EES To
-            <select value={assignedToId} disabled={candidateLoading} onChange={event => setAssignedToId(event.target.value)} className={`${inputClass} mt-1 py-2 font-normal normal-case tracking-normal`}>
-              <option value="">{candidateLoading ? "Loading reviewers..." : `Select ${reviewerRole === "MANAGER" ? "Manager" : "Second Engineer"}`}</option>
-              {candidates.map(candidate => <option key={candidate.id} value={candidate.id}>{candidate.name} · {candidate.unit} · {candidate.employeeNumber}</option>)}
-            </select>
-          </label>
-          <div className="min-w-0 flex-1">
-            <div className={labelClass}>Maker Signature {template === "garuda" && <span className="text-red-700">*</span>}</div>
-            <label className="mt-1 flex h-9 cursor-pointer items-center gap-2 rounded-lg border border-dashed border-blue-400 bg-blue-50 px-3 text-[10px] font-semibold text-blue-800 hover:bg-blue-100">
-              <Upload size={13} className="shrink-0" /> <span className="truncate">{signature?.name || "Upload PNG or JPG signature (max. 5 MB)"}</span>
-              <input type="file" accept="image/png,image/jpeg" className="sr-only" onChange={event => setSignature(event.target.files?.[0])} />
-            </label>
+          <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-2">
+            <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2">
+              <div className={labelClass}>Forward EES To</div>
+              <div className="mt-1 flex items-center gap-2 text-[11px] font-bold text-blue-950">
+                <CheckCircle2 size={13} className="shrink-0 text-emerald-700" />
+                <span className="truncate">
+                  {automaticReviewer?.actorName || "Previous reviewer unavailable"}
+                  {automaticReviewer?.actorRole ? ` · ${automaticReviewer.actorRole}` : ""}
+                </span>
+              </div>
+              <p className="mt-0.5 text-[9px] text-blue-700">Automatically routed to the reviewer who returned this EES.</p>
+            </div>
+            <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2">
+              <div className={labelClass}>Maker Signature {template === "garuda" && <span className="text-red-700">*</span>}</div>
+              <label className="mt-1 flex h-8 cursor-pointer items-center gap-2 rounded-md border border-dashed border-blue-400 bg-white px-2.5 text-[10px] font-semibold text-blue-800 hover:bg-blue-100">
+                <Upload size={13} className="shrink-0" />
+                <span className="truncate">{signature?.name || "Upload PNG or JPG signature (max. 5 MB)"}</span>
+                <input type="file" accept="image/png,image/jpeg" className="sr-only" onChange={event => setSignature(event.target.files?.[0])} />
+              </label>
+              <p className="mt-0.5 text-[9px] text-blue-700">Signature is uploaded again; the reviewer remains selected automatically.</p>
+            </div>
           </div>
           <div className="flex shrink-0 items-center justify-end gap-2">
             <button type="button" onClick={() => void saveRevision()} disabled={busy} className="inline-flex h-9 items-center gap-2 rounded-lg border border-blue-300 bg-white px-3 text-[10px] font-bold text-blue-800 disabled:opacity-50">{saving && !submitting ? <Loader2 size={13} className="animate-spin" /> : <Save size={13} />} Save Revision</button>
-            <button type="button" onClick={() => void resubmit()} disabled={busy || candidateLoading} className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-700 px-4 text-[10px] font-bold text-white disabled:opacity-50">{submitting ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />} {submitting ? "Submitting..." : "Save & Resubmit"}</button>
+            <button type="button" onClick={() => void resubmit()} disabled={busy || !automaticReviewer?.actorId} className="inline-flex h-9 items-center gap-2 rounded-lg bg-blue-700 px-4 text-[10px] font-bold text-white disabled:opacity-50">{submitting ? <Loader2 size={13} className="animate-spin" /> : <Send size={13} />} {submitting ? "Submitting..." : "Save & Resubmit"}</button>
           </div>
         </div>
         {!busy && <p className="mt-1.5 flex items-center justify-end gap-1 text-[9px] text-muted-foreground"><CheckCircle2 size={10} /> Revision uses PATCH, then resubmits through the approval workflow.</p>}
