@@ -181,6 +181,7 @@ export function SecondEngineerReviewPage({
   const [comment, setComment] = useState("");
   const [signature, setSignature] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [statusOverrides, setStatusOverrides] = useState<Record<string, string>>({});
   const reviewerLabel = reviewerTarget === "SECOND_ENGINEER"
     ? "Second Engineer"
     : "Manager";
@@ -249,12 +250,27 @@ export function SecondEngineerReviewPage({
     && detailQuery.data.approval.eesId === selected.eesId
       ? detailQuery.data.approval.reviewStatus
       : selected?.reviewStatus;
+  const displayedItems = useMemo(
+    () => query.items.map((item) => {
+      const detailStatus = item.eesId === selected?.eesId
+        ? effectiveStatus
+        : null;
+      const reviewStatus = detailStatus
+        || statusOverrides[item.eesId]
+        || item.reviewStatus;
+
+      return reviewStatus === item.reviewStatus
+        ? item
+        : { ...item, reviewStatus };
+    }),
+    [effectiveStatus, query.items, selected?.eesId, statusOverrides],
+  );
   const counts = useMemo(
-    () => query.items.reduce<Record<string, number>>((result, item) => {
+    () => displayedItems.reduce<Record<string, number>>((result, item) => {
       result[item.reviewStatus] = (result[item.reviewStatus] || 0) + 1;
       return result;
     }, {}),
-    [query.items],
+    [displayedItems],
   );
   const isCitilink = Boolean(
     selected
@@ -333,6 +349,10 @@ export function SecondEngineerReviewPage({
           ? `EES berhasil disetujui oleh ${selected.assignedToName || reviewerLabel}.`
           : "EES berhasil ditolak dan dikembalikan.",
       );
+      setStatusOverrides((current) => ({
+        ...current,
+        [selected.eesId]: decision,
+      }));
       setDecision(null);
       setComment("");
       setSignature(null);
@@ -444,7 +464,7 @@ export function SecondEngineerReviewPage({
               <p className="mt-0.5 text-[10px] text-white/70">{query.pagination.total} record from API</p>
             </div>
             <div className="flex-1 overflow-y-auto">
-              {query.items.map((item) => (
+              {displayedItems.map((item) => (
                 <AssignmentListItem
                   key={item.approvalId}
                   item={item}

@@ -1,6 +1,7 @@
 "use client";
 
 import axios from "axios";
+import { isTransientDirectUploadError } from "@/lib/http/directUploadClient";
 import {
   createContext,
   useCallback,
@@ -11,6 +12,9 @@ import {
   type ReactNode,
 } from "react";
 import {
+  getServiceBulletins,
+  reconcileServiceBulletinUpload,
+  snapshotServiceBulletinUploads,
   uploadServiceBulletin,
   validateServiceBulletinPdf,
 } from "../services/serviceBulletinApi";
@@ -112,6 +116,19 @@ export function ServiceBulletinUploadProvider({ children }: { children: ReactNod
     controllerRef.current = controller;
     setStatus("uploading");
 
+    let knownRecords = new Map<string, string>();
+    try {
+      const snapshot = await getServiceBulletins(
+        { page: 1, limit: 100 },
+        controller.signal,
+      );
+      knownRecords = snapshotServiceBulletinUploads(snapshot.items);
+    } catch (error) {
+      if (controller.signal.aborted || axios.isCancel(error)) return null;
+      // Snapshot verification is best-effort and must not block the upload.
+    }
+    const startedAt = Date.now();
+
     try {
       const result = await uploadServiceBulletin(file, aircraftType, controller.signal, (percentage) => {
         if (requestToken !== requestTokenRef.current) return;
@@ -131,7 +148,72 @@ export function ServiceBulletinUploadProvider({ children }: { children: ReactNod
         setFileName(null);
         return null;
       }
-      const responseStatus = axios.isAxiosError(error) ? error.response?.status : undefined;
+
+      if (isTransientDirectUploadError(error)) {
+        setStatus("processing-ai");
+        setProgress(100);
+        setMessage(
+          "Koneksi berhenti menunggu respons, tetapi backend mungkin sudah menyimpan SB. ORBIT sedang memverifikasi hasil upload...",
+        );
+
+        try {
+          const recovered = await reconcileServiceBulletinUpload(
+            file.name,
+            knownRecords,
+            startedAt,
+            controller.signal,
+          );
+          if (requestToken !== requestTokenRef.current) return null;
+          if (recovered) {
+            const recoveredResult: UploadServiceBulletinResult = {
+              message:
+                "Service Bulletin berhasil tersimpan. Respons upload sempat terputus, lalu data ditemukan melalui verifikasi database.",
+              data: {
+                id: recovered.id,
+                sbNumber: recovered.bulletinNumber,
+                title: recovered.title,
+                issuer: recovered.manufacturer,
+                issueDate: recovered.publicationDate,
+                aircraftType: recovered.aircraftType,
+                originalFileName: recovered.originalFilename || file.name,
+                storedFileName: recovered.storedFilename || file.name,
+                operatorId: recovered.operatorId,
+                status: recovered.status,
+              },
+              serviceBulletin: recovered,
+              aiCompleted: Boolean(
+                recovered.ocrStatus
+                && recovered.ocrStatus !== "UPLOADED"
+                && recovered.ocrStatus !== "FAILED"
+              ),
+              warning: null,
+            };
+            setStatus("success");
+            setProgress(100);
+            setMessage(recoveredResult.message);
+            return recoveredResult;
+          }
+        } catch (reconciliationError) {
+          if (
+            controller.signal.aborted
+            || axios.isCancel(reconciliationError)
+          ) {
+            return null;
+          }
+        }
+
+        setStatus("server-error");
+        setMessage(
+          "Respons upload terputus dan SB belum ditemukan setelah verifikasi. Periksa daftar Service Bulletin sebelum mencoba upload ulang agar tidak membuat data ganda.",
+        );
+        return null;
+      }
+
+      const responseStatus = error instanceof Error && "status" in error
+        ? (error as { status?: number }).status
+        : axios.isAxiosError(error)
+          ? error.response?.status
+          : undefined;
       setStatus(
         responseStatus === 401
           ? "unauthorized"

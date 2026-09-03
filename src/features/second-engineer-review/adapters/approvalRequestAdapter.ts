@@ -40,10 +40,15 @@ const TERMINAL_REVIEW_STATUSES = new Set([
 
 function approvalStatus(value: Record<string, unknown>, eesDocument: Record<string, unknown>) {
   // Reviewer inbox records expose `status`, while /approvals/history exposes
-  // the completed decision as `action` on ReviewAction.
+  // the completed decision as `action` on ReviewAction. A history row can
+  // still carry the original request status (PENDING), so a terminal action
+  // must win over that stale status.
+  const action = text(value.action).toUpperCase();
+  if (TERMINAL_REVIEW_STATUSES.has(action)) return action;
+
   return text(
     value.status,
-    text(value.action, text(eesDocument.reviewStatus, "PENDING")),
+    text(value.reviewStatus, text(eesDocument.reviewStatus, action || "PENDING")),
   ).toUpperCase();
 }
 
@@ -201,6 +206,24 @@ export function mapApprovalRequestDetail(
         .map(mapApprovalHistoryItem)
         .filter((item): item is ApprovalHistoryItem => item !== null)
     : [];
+
+  const latestTerminalHistory = [...history]
+    .filter((item) => TERMINAL_REVIEW_STATUSES.has(item.action))
+    .sort((left, right) => {
+      const leftTimestamp = Date.parse(left.createdAt);
+      const rightTimestamp = Date.parse(right.createdAt);
+      return (Number.isFinite(rightTimestamp) ? rightTimestamp : 0)
+        - (Number.isFinite(leftTimestamp) ? leftTimestamp : 0);
+    })[0];
+
+  if (
+    latestTerminalHistory
+    && approval.reviewStatus === "PENDING"
+  ) {
+    approval.reviewStatus = latestTerminalHistory.action;
+    approval.reviewedAt = approval.reviewedAt || latestTerminalHistory.createdAt || null;
+    approval.comment = approval.comment || latestTerminalHistory.comment;
+  }
 
   return { approval, history };
 }

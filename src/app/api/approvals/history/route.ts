@@ -5,7 +5,13 @@ import {
   getAuthorizationHeader,
 } from "@/lib/http/backendRoute";
 
-const HISTORY_STATUSES = new Set(["PENDING", "APPROVED"]);
+const HISTORY_STATUSES = new Set([
+  "PENDING",
+  "PARTIALLY_APPROVED",
+  "APPROVED",
+  "REJECTED",
+  "RETURNED",
+]);
 
 export async function GET(request: Request) {
   const authorization = await getAuthorizationHeader();

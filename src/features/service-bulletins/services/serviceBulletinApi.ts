@@ -5,6 +5,11 @@ import {
   directUploadError,
 } from "@/lib/http/directUploadClient";
 import {
+  isCreatedAfter,
+  normalizeUploadFilename,
+  waitForUploadRecord,
+} from "@/lib/http/uploadReconciliation";
+import {
   mapServiceBulletin,
   mapServiceBulletinList,
   mapServiceBulletinRelations,
@@ -15,6 +20,7 @@ import type {
   ServiceBulletinApplicability,
   EesApprovalState,
   ServiceBulletinEesDocument,
+  ServiceBulletinViewModel,
   ServiceBulletinReviewAction,
   ServiceBulletinEesResult,
   EesValidatedPayload,
@@ -131,6 +137,67 @@ export async function uploadServiceBulletin(
   } catch (error) {
     throw directUploadError(error, "Service Bulletin gagal diunggah.");
   }
+}
+
+function serviceBulletinUploadFingerprint(item: ServiceBulletinViewModel) {
+  return JSON.stringify({
+    bulletinNumber: item.bulletinNumber,
+    revision: item.revision,
+    title: item.title,
+    aircraftType: item.aircraftType,
+    ocrStatus: item.ocrStatus,
+    draftStatus: item.draftStatus,
+  });
+}
+
+export function snapshotServiceBulletinUploads(
+  items: ServiceBulletinViewModel[],
+) {
+  return new Map(
+    items.map((item) => [item.id, serviceBulletinUploadFingerprint(item)]),
+  );
+}
+
+/**
+ * A direct upload can finish in the backend after the browser/gateway has
+ * already lost the response. Reconcile against the newest SB records so the
+ * UI does not report a false failure or encourage a duplicate upload.
+ */
+export async function reconcileServiceBulletinUpload(
+  fileName: string,
+  knownRecords: Map<string, string>,
+  startedAt: number,
+  signal?: AbortSignal,
+) {
+  const expectedFileName = normalizeUploadFilename(fileName);
+
+  return waitForUploadRecord<ServiceBulletinViewModel>({
+    signal,
+    attempts: 20,
+    intervalMs: 3_000,
+    load: async (requestSignal) => {
+      const result = await getServiceBulletins(
+        { page: 1, limit: 100 },
+        requestSignal,
+      );
+
+      const candidates = result.items.filter((item) => {
+        const previousFingerprint = knownRecords.get(item.id);
+        if (!previousFingerprint) {
+          return isCreatedAfter(item.createdAt, startedAt);
+        }
+        return previousFingerprint !== serviceBulletinUploadFingerprint(item);
+      });
+
+      const detailedCandidates = await Promise.all(
+        candidates.map((item) => getServiceBulletin(item.id, requestSignal)),
+      );
+      return detailedCandidates.filter((item) => (
+        normalizeUploadFilename(item.originalFilename) === expectedFileName
+      ));
+    },
+    matches: () => true,
+  });
 }
 
 export async function getAircraftTypes(signal?: AbortSignal) {
