@@ -2727,12 +2727,13 @@ function Step2SelectCategory({
   const activeGeneratedEesDocument = currentCitilinkContext?.document ?? generatedEesDocument;
   const activeAiSummary = currentCitilinkContext?.aiSummary ?? data.aiSummary;
 
-  // Manual Citilink fields include checkbox values from /ai-summary and the
-  // latest persisted EES values. Re-fetching here prevents an old workflow
-  // snapshot from being treated as an empty manual form.
+  // Category-based manual Citilink fields may reuse saved AI/EES context.
+  // A strict manual form (incomplete AI classification) intentionally skips
+  // this refresh so backend-derived values cannot prefill the form.
   useEffect(() => {
     if (
-      !requiresManualEES
+      lacksAiClassification
+      || !requiresManualEES
       || selectedTemplate !== "citilink"
       || !sb?.backendId
     ) {
@@ -2767,7 +2768,7 @@ function Step2SelectCategory({
     return () => {
       disposed = true;
     };
-  }, [data.aiSummary, generatedEesDocument, requiresManualEES, sb?.backendId, selectedTemplate]);
+  }, [data.aiSummary, generatedEesDocument, lacksAiClassification, requiresManualEES, sb?.backendId, selectedTemplate]);
 
   const generatedEvaluations = activeGeneratedEesDocument?.evaluations?.length
     ? activeGeneratedEesDocument.evaluations
@@ -2791,40 +2792,41 @@ function Step2SelectCategory({
 
   const eesData = {
     selectedSB: sb,
-    generatedEesDocument: activeGeneratedEesDocument,
-    aiSummary: activeAiSummary,
+    generatedEesDocument: lacksAiClassification ? null : activeGeneratedEesDocument,
+    aiSummary: lacksAiClassification ? null : activeAiSummary,
     eesNumber,
-    bulletinNumber: sb ? sb.id : "—",
-    bulletinRevision: sb?.revision || "-",
+    bulletinNumber: lacksAiClassification ? "" : sb ? sb.id : "—",
+    bulletinRevision: lacksAiClassification ? "" : sb?.revision || "-",
     ADRelated: "-",
-    engine: sb?.affectedESNs || [],
-    affectedESNs: sb?.affectedESNs || [],
-    affectedPartNumbers: sb?.affectedPartNumbers || [],
-    affectedModels: parseListEntries(sb?.engine),
-    affectedEngines: sb?.affectedEngine || "",
-    note: activeGeneratedEesDocument?.note || "",
+    engine: lacksAiClassification ? [] : sb?.affectedESNs || [],
+    affectedESNs: lacksAiClassification ? [] : sb?.affectedESNs || [],
+    affectedPartNumbers: lacksAiClassification ? [] : sb?.affectedPartNumbers || [],
+    affectedModels: lacksAiClassification ? [] : parseListEntries(sb?.engine),
+    affectedEngines: lacksAiClassification ? "" : sb?.affectedEngine || "",
+    note: lacksAiClassification ? "" : activeGeneratedEesDocument?.note || "",
     preparedBy: sb?.createdBy || "",
-    evaluationDate: sb?.issuedDate || "",
+    evaluationDate: lacksAiClassification ? "" : sb?.issuedDate || "",
     fleet,
     airline,
-    engineType: engine,
-    eesCategory: isGEMode ? geCategory.level : aiCategory,
+    engineType: lacksAiClassification ? "" : engine,
+    eesCategory: lacksAiClassification ? "" : isGEMode ? geCategory.level : aiCategory,
     categorySystem,
-    geCategory: isGEMode ? geCategory.level : undefined,
-    aiSuggestedGECategory: isGEMode && backendGECategory ? geCategory.level : undefined,
-    geCategoryTitle: isGEMode ? geCategory.title : undefined,
-    geCategoryImpact: isGEMode ? geCategory.customerAction : undefined,
-    geImpact: isGEMode ? geImpact.code : undefined,
-    aiSuggestedGEImpact: isGEMode && backendGEImpact ? geImpact.code : undefined,
-    geImpactTitle: isGEMode ? geImpact.title : undefined,
-    geImpactDescription: isGEMode ? geImpact.description : undefined,
-    technicalCompliance: isGEMode ? (sb?.compliance || "") : undefined,
+    geCategory: isGEMode && !lacksAiClassification ? geCategory.level : undefined,
+    aiSuggestedGECategory: isGEMode && !lacksAiClassification && backendGECategory ? geCategory.level : undefined,
+    geCategoryTitle: isGEMode && !lacksAiClassification ? geCategory.title : undefined,
+    geCategoryImpact: isGEMode && !lacksAiClassification ? geCategory.customerAction : undefined,
+    geImpact: isGEMode && !lacksAiClassification ? geImpact.code : undefined,
+    aiSuggestedGEImpact: isGEMode && !lacksAiClassification && backendGEImpact ? geImpact.code : undefined,
+    geImpactTitle: isGEMode && !lacksAiClassification ? geImpact.title : undefined,
+    geImpactDescription: isGEMode && !lacksAiClassification ? geImpact.description : undefined,
+    technicalCompliance: isGEMode && !lacksAiClassification ? (sb?.compliance || "") : undefined,
     programSupport: undefined,
     interchangeabilityCode: undefined,
     isUnsyncedSB: false,
     isManualCategory: requiresManualEES,
+    strictManualInput: lacksAiClassification,
     aiSuggestedCategory: aiCategory,
-    aiConfidence,
+    aiConfidence: lacksAiClassification ? undefined : aiConfidence,
     ...(!requiresManualEES ? {
       evaluations: generatedEvaluations,
       taskType: sb?.taskType || "-",
@@ -2837,7 +2839,7 @@ function Step2SelectCategory({
       dueCompliance: sb?.compliance || "",
       categorySource: "AI Assigned",
     } : {}),
-    ...(requiresManualEES ? {
+    ...(requiresManualEES && !lacksAiClassification ? {
       effectivitySB: "",
       taskType: activeGeneratedEesDocument?.taskType || sb?.taskType || "",
       applicable: generatedApplicable,
@@ -2858,11 +2860,30 @@ function Step2SelectCategory({
       ...((remarks || extractedRemarks)
         ? { evaluationResult: remarks || extractedRemarks }
         : {}),
-      categorySource: lacksAiClassification
-        ? "SB Not Generated by AI — Manual Input Required"
-        : "AI Classified — Manual EES Required",
+      categorySource: "AI Classified — Manual EES Required",
     } : {}),
-    remarks,
+    ...(lacksAiClassification ? {
+      effectivitySB: "",
+      taskType: "",
+      applicable: "",
+      rep: "",
+      dueAt: "",
+      warranty: "",
+      description: "",
+      subject: "",
+      references: [],
+      referencesRaw: "",
+      dueCompliance: "",
+      remarks: "",
+      evaluations: [],
+      eesIssuedDate: "",
+      bulletinType: "",
+      aircraftType: "",
+      effectivity: "",
+      evaluationResult: "",
+      categorySource: "SB Not Generated by AI — Manual Input Required",
+    } : {}),
+    remarks: lacksAiClassification ? "" : remarks,
     ...manualDraft,
     // Citilink Subject is sourced from the SB title for both AI-assisted and
     // manual categories. Previously it was only initialized in the manual
@@ -2870,7 +2891,9 @@ function Step2SelectCategory({
     // though its title was already displayed in the preview.
     subject: typeof manualDraft.subject === "string" && manualDraft.subject.trim()
       ? manualDraft.subject
-      : sb?.title || activeGeneratedEesDocument?.serviceBulletin?.title || "",
+      : lacksAiClassification
+        ? ""
+        : sb?.title || activeGeneratedEesDocument?.serviceBulletin?.title || "",
     // The active template is the source of truth. A restored/manual draft may
     // still contain the previous template and must never override the choice.
     eesTemplate: selectedTemplate,
@@ -3187,17 +3210,11 @@ function Step2SelectCategory({
             Manual Input
           </span>
         </div>
-        <div className="mb-3 grid grid-cols-3 gap-3">
+        <div className="mb-3 grid grid-cols-2 gap-3">
           <div>
             <div className="mb-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">Category</div>
             <div className="text-sm font-bold text-foreground">
               {hasComplianceCategory ? aiCategory : "Unavailable"}
-            </div>
-          </div>
-          <div>
-            <div className="mb-0.5 text-[10px] uppercase tracking-wider text-muted-foreground">AI Confidence</div>
-            <div className="text-sm font-bold text-foreground">
-              {hasAiConfidence ? `${aiConfidence}%` : "Unavailable"}
             </div>
           </div>
           <div>
@@ -3206,7 +3223,7 @@ function Step2SelectCategory({
           </div>
         </div>
         <div className="rounded-lg border border-amber-500/20 bg-background/65 px-3 py-2 text-[11px] leading-relaxed text-muted-foreground">
-          The backend did not provide a complete AI classification (compliance category and confidence score are both required). Select an EES template, then complete all required fields manually.
+          AI classification is incomplete, so AI-derived values are not used. Select an EES template, then complete all required fields manually.
         </div>
       </div>
       ) : isGEMode ? (
@@ -3308,7 +3325,7 @@ function Step2SelectCategory({
                 </div>
                 <p className="mt-1 text-[11px] leading-relaxed text-muted-foreground">
                   {lacksAiClassification
-                    ? "Category and AI confidence are unavailable. Complete the EES form manually before continuing."
+                    ? "AI classification is incomplete. The form starts empty and must be completed manually before continuing."
                     : "Complete the EES form below. The values will be applied to the generated EES after Applicability Review."}
                 </p>
               </div>

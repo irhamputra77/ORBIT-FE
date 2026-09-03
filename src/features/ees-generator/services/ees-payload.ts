@@ -156,6 +156,7 @@ export function createValidatedEesPayload(
   const generatedDocument = isRecord(ees.generatedEesDocument)
     ? ees.generatedEesDocument
     : {};
+  const strictManualInput = ees.strictManualInput === true;
   const citilink = isCitilinkEes(ees);
   const sources = citilinkSources(ees);
   const citilinkField = (...keys: string[]) => getCitilinkField(sources, ...keys);
@@ -211,9 +212,14 @@ export function createValidatedEesPayload(
     editableCitilinkField("maintenanceLevel", "complianceTimeType", "compliance_time_type"),
   );
   const citilinkMaintenanceLevel = maintenanceLevelCode(maintenanceLevel);
-  const accomplishmentMethod = normalizeAccomplishmentMethod(
-    editableCitilinkField("accomplishmentMethod", "taskType", "task_type"),
+  const accomplishmentMethodValue = editableCitilinkField(
+    "accomplishmentMethod",
+    "taskType",
+    "task_type",
   );
+  const accomplishmentMethod = strictManualInput && !firstText(accomplishmentMethodValue)
+    ? []
+    : normalizeAccomplishmentMethod(accomplishmentMethodValue);
   const citilinkTaskType = accomplishmentMethodCode(accomplishmentMethod);
   const citilinkRepetitive = repetitiveBoolean(
     citilinkField("isRepetitive", "repetitive"),
@@ -222,7 +228,8 @@ export function createValidatedEesPayload(
   );
   const unitConcern = normalizeUnitConcern(editableCitilinkField("unitConcern"));
   const reasonOfEvaluation = normalizeReasonOfEvaluation(
-    editableCitilinkField("reasonOfEvaluation") ?? CITILINK_DEFAULT_REASON_OF_EVALUATION,
+    editableCitilinkField("reasonOfEvaluation")
+      ?? (strictManualInput ? undefined : CITILINK_DEFAULT_REASON_OF_EVALUATION),
   );
   const engineeringAction = normalizeEngineeringAction(
     editableCitilinkField("engineeringAction", "recommendedAction", "recommended_action"),

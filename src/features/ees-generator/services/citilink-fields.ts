@@ -99,6 +99,13 @@ export function getCitilinkField(
 }
 
 export function citilinkSources(input: UnknownRecord): unknown[] {
+  // An SB without a complete AI classification must start as a genuinely
+  // manual form. Do not let nested OCR, AI-summary, generated-EES, or SB data
+  // silently populate fields that the engineer is expected to complete.
+  if (input.strictManualInput === true) {
+    return [input];
+  }
+
   const options = isRecord(input.citilinkOptions) ? input.citilinkOptions : {};
   const document = isRecord(input.generatedEesDocument) ? input.generatedEesDocument : {};
   const selectedSB = isRecord(input.selectedSB) ? input.selectedSB : {};

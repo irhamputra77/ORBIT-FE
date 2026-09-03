@@ -90,37 +90,42 @@ export function getMissingCitilinkRequiredFields(
   ees: CitilinkPreviewData,
   options: { allowEmptyEesNumber?: boolean } = {},
 ) {
+  const strictManualInput = ees.strictManualInput === true;
   const sources = citilinkSources(ees);
   const fieldValue = (key: string, ...fallbackKeys: string[]) => {
     if (Object.prototype.hasOwnProperty.call(ees, key) && hasValue(ees[key])) {
       return ees[key];
     }
-    return getCitilinkField(sources, key, ...fallbackKeys);
+    return getCitilinkField(
+      sources,
+      key,
+      ...(strictManualInput ? [] : fallbackKeys),
+    );
   };
   const evaluationResult = fieldValue("evaluationResult", "evaluation_result");
-  // Older/generated EES records keep this content in the evaluation remarks.
-  // The preview already displays that value as the fallback, therefore the
-  // required-field check must use the identical fallback.
+  // Older/generated EES records keep this content in evaluation remarks.
+  // Strict manual mode deliberately disables that fallback.
   const hasEvaluationResult = hasValue(evaluationResult)
-    || hasValue(getCitilinkField(sources, "remarks"));
+    || (!strictManualInput && hasValue(getCitilinkField(sources, "remarks")));
 
   return [
     !options.allowEmptyEesNumber && !hasValue(fieldValue("eesNumber")) ? "EES No." : null,
     !hasValue(fieldValue("eesIssuedDate", "issueDate", "evaluationDate")) ? "EES Issued Date" : null,
-    !hasValue(fieldValue("unitConcern") ?? ["TEA-2"]) ? "Unit Concern" : null,
+    !hasValue(fieldValue("unitConcern") ?? (strictManualInput ? undefined : ["TEA-2"])) ? "Unit Concern" : null,
     !hasValue(fieldValue("bulletinNumber")) ? "Bulletin No." : null,
-    !hasValue(fieldValue("bulletinType") ?? "Service Bulletin") ? "Bull Type" : null,
+    !hasValue(fieldValue("bulletinType") ?? (strictManualInput ? undefined : "Service Bulletin")) ? "Bull Type" : null,
     !hasValue(fieldValue("subject", "title", "description")) ? "Subject" : null,
     !hasValue(fieldValue("aircraftType", "fleet")) ? "Aircraft Type" : null,
     !hasValue(
       normalizeReasonOfEvaluation(
-        fieldValue("reasonOfEvaluation") ?? CITILINK_DEFAULT_REASON_OF_EVALUATION,
+        fieldValue("reasonOfEvaluation")
+          ?? (strictManualInput ? undefined : CITILINK_DEFAULT_REASON_OF_EVALUATION),
       ),
     ) ? "Reason of Evaluation" : null,
     !hasEvaluationResult ? "Evaluation Result" : null,
     !hasValue(fieldValue("engineeringAction", "recommendedAction", "recommended_action")) ? "Engineering Action" : null,
     !hasValue(fieldValue("furtherImplementation", "furtherImpl")) ? "Further Implementation" : null,
-    !hasValue(fieldValue("managementApproval") ?? ["TEA"]) ? "Management Approval" : null,
+    !hasValue(fieldValue("managementApproval") ?? (strictManualInput ? undefined : ["TEA"])) ? "Management Approval" : null,
   ].filter((field): field is string => field !== null);
 }
 
@@ -268,6 +273,7 @@ export function CitilinkEESTemplatePreview({
   compactFields = false,
   invalidFields = [],
 }: CitilinkEESTemplatePreviewProps) {
+  const strictManualInput = ees.strictManualInput === true;
   const invalidFieldSet = new Set(invalidFields);
   const isInvalid = (...fields: string[]) => fields.some(field => invalidFieldSet.has(field));
   const options = (ees.citilinkOptions ?? {}) as CitilinkPreviewData;
@@ -293,7 +299,8 @@ export function CitilinkEESTemplatePreview({
   // mask a checkbox change made by the user in Stage 4.
   const componentType = normalizeComponentType(editableField("partClassification", "componentType", "component_type"));
   const reasons = normalizeReasonOfEvaluation(
-    editableField("reasonOfEvaluation") ?? CITILINK_DEFAULT_REASON_OF_EVALUATION,
+    editableField("reasonOfEvaluation")
+      ?? (strictManualInput ? undefined : CITILINK_DEFAULT_REASON_OF_EVALUATION),
   );
   const maintenanceLevel = normalizeMaintenanceLevel(editableField("maintenanceLevel", "complianceTimeType", "compliance_time_type"));
   const recommendedAction = field("recommendedAction", "recommended_action");
@@ -301,7 +308,10 @@ export function CitilinkEESTemplatePreview({
     editableField("engineeringAction") ?? recommendedAction,
   );
   const consequence = consequenceFromEngineeringAction(engineeringAction);
-  const accomplishmentMethod = normalizeAccomplishmentMethod(editableField("accomplishmentMethod", "taskType", "task_type"));
+  const accomplishmentMethodValue = editableField("accomplishmentMethod", "taskType", "task_type");
+  const accomplishmentMethod = strictManualInput && !hasValue(accomplishmentMethodValue)
+    ? []
+    : normalizeAccomplishmentMethod(accomplishmentMethodValue);
   const inspectionType = normalizeInspectionType(
     editableField("isRepetitive", "repetitive"),
     field("compliancePeriod", "compliance_period", "dueCompliance"),
@@ -376,17 +386,17 @@ export function CitilinkEESTemplatePreview({
         <section className={`grid gap-4 px-4 py-4 ${docViewerOpen ? "grid-cols-2" : "grid-cols-1 md:grid-cols-4"}`}>
           <TextField label="EES No." field="eesNumber" value={value("eesNumber")} editable={editableFields} invalid={isInvalid("EES No.")} onChange={onFieldChange} />
           <TextField label="Issued Date" field="eesIssuedDate" value={value("eesIssuedDate", value("issueDate", value("evaluationDate")))} editable={editableFields} date invalid={isInvalid("EES Issued Date")} onChange={onFieldChange} />
-          <div className={docViewerOpen ? "col-span-2" : "md:col-span-2"}><CheckGroup label="Unit Concern" field="unitConcern" options={[...CITILINK_UNIT_CONCERNS]} selected={unitConcern.length ? unitConcern : ["TEA-2"]} editable={editableFields} invalid={isInvalid("Unit Concern")} onChange={onFieldChange} /></div>
+          <div className={docViewerOpen ? "col-span-2" : "md:col-span-2"}><CheckGroup label="Unit Concern" field="unitConcern" options={[...CITILINK_UNIT_CONCERNS]} selected={unitConcern.length ? unitConcern : strictManualInput ? [] : ["TEA-2"]} editable={editableFields} invalid={isInvalid("Unit Concern")} onChange={onFieldChange} /></div>
           <div className={docViewerOpen ? "col-span-2" : "md:col-span-4"}><TextField label="Transfer To" field="transferTo" value={value("transferTo")} editable={editableFields} onChange={onFieldChange} /></div>
         </section>
 
         <section className={`grid gap-4 px-4 py-4 ${docViewerOpen ? "grid-cols-2" : "grid-cols-1 md:grid-cols-4"}`}>
           <TextField label="Bulletin No." field="bulletinNumber" value={bulletinNumber} editable={editableFields} invalid={isInvalid("Bulletin No.")} onChange={onFieldChange} />
-          <TextField label="Bull Type" field="bulletinType" value={value("bulletinType", "Service Bulletin")} editable={editableFields} invalid={isInvalid("Bull Type")} onChange={onFieldChange} />
+          <TextField label="Bull Type" field="bulletinType" value={value("bulletinType", strictManualInput ? "" : "Service Bulletin")} editable={editableFields} invalid={isInvalid("Bull Type")} onChange={onFieldChange} />
           <TextField label="ATA" field="ata" value={value("ata", ataValues.ata)} editable={editableFields} onChange={onFieldChange} />
           <TextField label="Sub ATA" field="subAta" value={value("subAta", ataValues.subAta)} editable={editableFields} onChange={onFieldChange} />
-          <TextField label="Manufacturer" field="manufacturer" value={value("manufacturer", getManufacturer(engine))} editable={editableFields} onChange={onFieldChange} />
-          <TextField label="Issued Date" field="bulletinIssuedDate" value={value("bulletinIssuedDate", value("issueDate", value("evaluationDate")))} editable={editableFields} date onChange={onFieldChange} />
+          <TextField label="Manufacturer" field="manufacturer" value={value("manufacturer", strictManualInput ? "" : getManufacturer(engine))} editable={editableFields} onChange={onFieldChange} />
+          <TextField label="Issued Date" field="bulletinIssuedDate" value={value("bulletinIssuedDate", strictManualInput ? "" : value("issueDate", value("evaluationDate")))} editable={editableFields} date onChange={onFieldChange} />
           <div className={docViewerOpen ? "col-span-2" : "md:col-span-2"}><TextField label="Subject" field="subject" value={toText(field("subject", "title"))} editable={editableFields} invalid={isInvalid("Subject")} onChange={onFieldChange} /></div>
           <div className={docViewerOpen ? "col-span-2" : "md:col-span-4"}>
             <div className="mb-1 text-[10px] font-semibold text-muted-foreground">Other Ref.</div>
@@ -419,7 +429,7 @@ export function CitilinkEESTemplatePreview({
         </section>
 
         <section className={`grid gap-4 px-4 py-4 ${docViewerOpen ? "grid-cols-2" : "grid-cols-1 md:grid-cols-3"}`}>
-          <TextField label="Aircraft Type" field="aircraftType" value={value("aircraftType", value("fleet"))} editable={editableFields} invalid={isInvalid("Aircraft Type")} onChange={onFieldChange} />
+          <TextField label="Aircraft Type" field="aircraftType" value={value("aircraftType", strictManualInput ? "" : value("fleet"))} editable={editableFields} invalid={isInvalid("Aircraft Type")} onChange={onFieldChange} />
           <TextField label="Engine/APU" field="engineApu" value={value("engineApu", engine)} editable={editableFields} onChange={onFieldChange} />
           <div className={docViewerOpen ? "col-span-2" : ""}>
             <div className="mb-1 text-[10px] font-semibold text-muted-foreground">Affected Model</div>
@@ -545,7 +555,7 @@ export function CitilinkEESTemplatePreview({
         </section>
 
         <section className="px-5 py-4">
-          <CheckGroup label="Management Approval" field="managementApproval" options={[...CITILINK_MANAGEMENT_APPROVAL]} selected={managementApproval.length ? managementApproval : ["TEA"]} editable={editableFields} invalid={isInvalid("Management Approval")} onChange={onFieldChange} />
+          <CheckGroup label="Management Approval" field="managementApproval" options={[...CITILINK_MANAGEMENT_APPROVAL]} selected={managementApproval.length ? managementApproval : strictManualInput ? [] : ["TEA"]} editable={editableFields} invalid={isInvalid("Management Approval")} onChange={onFieldChange} />
         </section>
       </div>
     </div>
