@@ -54,7 +54,7 @@ import {
   updateUserStatus,
   userToFormValues,
 } from "../services/userManagementApi";
-import type { ManagedUser, UserFormValues, UserListMeta } from "../types";
+import type { ManagedUser, OperatorOption, UserFormValues, UserListMeta } from "../types";
 
 const roles: UserRole[] = ["ADMIN", "MANAGER", "ENGINEER", "TECHNICIAN"];
 const emptyMeta: UserListMeta = { page: 1, limit: 20, total: 0, totalPages: 1 };
@@ -69,6 +69,56 @@ const emptyForm: UserFormValues = {
   unit: "",
   active: true,
 };
+
+const DEFAULT_OPERATORS: OperatorOption[] = [
+  { id: "GARUDA", code: "GA", name: "Garuda Indonesia" },
+  { id: "CITILINK", code: "QG", name: "Citilink" },
+];
+
+function buildOperatorOptions(
+  discoveredList: Array<{ id: string; code?: string | null; name?: string | null }>,
+  currentValue?: string,
+): OperatorOption[] {
+  const optionsMap = new Map<string, OperatorOption>();
+
+  const getMatcher = (code?: string | null, name?: string | null) => {
+    const c = (code || "").toUpperCase().trim();
+    const n = (name || "").toUpperCase().trim();
+    if (c === "GA" || n.includes("GARUDA")) return "GARUDA";
+    if (c === "QG" || n.includes("CITILINK")) return "CITILINK";
+    return c || n;
+  };
+
+  const matchedKeys = new Set<string>();
+
+  for (const item of discoveredList) {
+    if (!item.id && !item.code) continue;
+    const id = item.id || item.code || "";
+    const code = item.code || item.id || "";
+    const name = item.name || item.code || item.id || "";
+    const matchKey = getMatcher(code, name);
+    if (matchKey) matchedKeys.add(matchKey);
+    optionsMap.set(id, { id, code, name });
+  }
+
+  for (const def of DEFAULT_OPERATORS) {
+    const matchKey = getMatcher(def.code, def.name);
+    if (!matchedKeys.has(matchKey) && !optionsMap.has(def.id)) {
+      optionsMap.set(def.id, def);
+    }
+  }
+
+  if (currentValue && currentValue.trim() && !optionsMap.has(currentValue)) {
+    optionsMap.set(currentValue, {
+      id: currentValue,
+      code: currentValue,
+      name: currentValue,
+    });
+  }
+
+  return Array.from(optionsMap.values());
+}
+
 
 type FormErrors = Partial<Record<keyof UserFormValues, string>>;
 
@@ -154,6 +204,7 @@ export default function UserManagementPage() {
   const [isResettingPassword, setIsResettingPassword] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<ManagedUser | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [directoryOperators, setDirectoryOperators] = useState<OperatorOption[]>([]);
 
   const isAdmin = profileQuery.data?.role === "ADMIN";
 
@@ -194,10 +245,59 @@ export default function UserManagementPage() {
     };
   }, [loadUsers, reloadVersion]);
 
+  useEffect(() => {
+    let active = true;
+    getUsers({ page: 1, limit: 100 })
+      .then((res) => {
+        if (!active) return;
+        const ops: OperatorOption[] = [];
+        for (const user of res.data) {
+          if (user.operator?.id) {
+            ops.push({
+              id: user.operator.id,
+              code: user.operator.code || user.operator.id,
+              name: user.operator.name || user.operator.code || user.operator.id,
+            });
+          } else if (user.operatorId) {
+            ops.push({
+              id: user.operatorId,
+              code: user.operatorId,
+              name: user.operatorId,
+            });
+          }
+        }
+        if (ops.length > 0) {
+          setDirectoryOperators(ops);
+        }
+      })
+      .catch(() => {
+        // Silently fallback to page users and default operators
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const operatorOptions = useMemo(() => {
+    const discovered: Array<{ id: string; code?: string | null; name?: string | null }> = [
+      ...directoryOperators,
+      ...users.map((u) => ({
+        id: u.operator?.id || u.operatorId || "",
+        code: u.operator?.code || "",
+        name: u.operator?.name || "",
+      })),
+      ...(profileQuery.data?.operator ? [profileQuery.data.operator] : []),
+      ...(editingUser?.operator ? [editingUser.operator] : []),
+    ];
+
+    return buildOperatorOptions(discovered, form.operatorId);
+  }, [directoryOperators, users, profileQuery.data?.operator, editingUser?.operator, form.operatorId]);
+
   const pageStats = useMemo(() => ({
     active: users.filter((user) => user.active).length,
     operators: new Set(users.map((user) => user.operatorId).filter(Boolean)).size,
   }), [users]);
+
 
   function openCreateDialog() {
     setEditingUser(null);
@@ -580,7 +680,26 @@ export default function UserManagementPage() {
               </select>
             </FormField>
             <FormField label="Operator ID" error={formErrors.operatorId}>
-              <input value={form.operatorId} onChange={(event) => updateField("operatorId", event.target.value)} className={inputClass()} placeholder="OP-XXXXXXXX" />
+              <select
+                value={form.operatorId}
+                onChange={(event) => updateField("operatorId", event.target.value)}
+                className={inputClass(Boolean(formErrors.operatorId))}
+              >
+                <option value="">Pilih Operator (Opsional)</option>
+                {operatorOptions.map((op) => {
+                  const code = op.code?.trim();
+                  const name = op.name?.trim();
+                  const label = name && code && name.toUpperCase() !== code.toUpperCase()
+                    ? `${name} (${code})`
+                    : name || code || op.id;
+
+                  return (
+                    <option key={op.id} value={op.id}>
+                      {label}
+                    </option>
+                  );
+                })}
+              </select>
             </FormField>
             <FormField label="Unit" error={formErrors.unit}>
               <input value={form.unit} onChange={(event) => updateField("unit", event.target.value)} className={inputClass()} placeholder="Contoh: TEA-2" />

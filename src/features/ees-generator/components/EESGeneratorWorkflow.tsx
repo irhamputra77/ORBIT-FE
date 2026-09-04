@@ -2403,22 +2403,24 @@ type CitilinkOptionsData = {
   managementApproval: string[];
 };
 
-const DEFAULT_CITILINK: CitilinkOptionsData = {
-  unitConcern: ["TEA-2"],
+const EMPTY_CITILINK: CitilinkOptionsData = {
+  unitConcern: [],
   partClassification: [],
-  reasonOfEvaluation: [...CITILINK_DEFAULT_REASON_OF_EVALUATION],
+  reasonOfEvaluation: [],
   maintenanceLevel: [],
   maintenanceDate: "",
+
   warranty: "",
   warrantyType: "",
   warrantyDueDate: "",
   warrantyNote: "",
+
   consequence: "",
   accomplishmentMethod: [],
-  inspectionType: ["One Time"],
+  inspectionType: [],
   engineeringAction: [],
   furtherImpl: [],
-  managementApproval: ["TEA"],
+  managementApproval: [],
 };
 
 function getCitilinkReadiness(d: CitilinkOptionsData): [boolean, string][] {
@@ -2678,9 +2680,29 @@ function Step2SelectCategory({
   const aiConfidence = getAiConfidence(sb);
   const hasComplianceCategory = complianceCategory > 0;
   const hasAiConfidence = aiConfidence !== null;
-  const assignedCategory = isGEMode ? geCategory.level : aiCategory;
-  const lacksAiClassification = !hasComplianceCategory || !hasAiConfidence;
-  const requiresManualEES = lacksAiClassification || isCategoryManual(assignedCategory);
+const assignedCategory = isGEMode ? geCategory.level : aiCategory;
+
+const categoryNumber = (() => {
+  const match = assignedCategory.match(/\d+/);
+  if (!match) return null;
+
+  const value = Number(match[0]);
+  return Number.isFinite(value) ? value : null;
+})();
+
+const isBelowCategory4 =
+  categoryNumber !== null &&
+  categoryNumber >= 1 &&
+  categoryNumber < 4;
+
+const lacksAiClassification =
+  !hasComplianceCategory || !hasAiConfidence;
+
+const strictManualInput =
+  lacksAiClassification || isBelowCategory4;
+
+const requiresManualEES =
+  strictManualInput || isCategoryManual(assignedCategory);
   const hasExtractedAI = sb?.ocrStatus === "EXTRACTED" && Boolean(complianceCategory);
   const extractedRemarks = (sb?.extractedItems || [])
     .map(item => item.remarks)
@@ -2732,7 +2754,7 @@ function Step2SelectCategory({
   // this refresh so backend-derived values cannot prefill the form.
   useEffect(() => {
     if (
-      lacksAiClassification
+      strictManualInput
       || !requiresManualEES
       || selectedTemplate !== "citilink"
       || !sb?.backendId
@@ -2768,7 +2790,14 @@ function Step2SelectCategory({
     return () => {
       disposed = true;
     };
-  }, [data.aiSummary, generatedEesDocument, lacksAiClassification, requiresManualEES, sb?.backendId, selectedTemplate]);
+  }, [
+  data.aiSummary,
+  generatedEesDocument,
+  strictManualInput,
+  requiresManualEES,
+  sb?.backendId,
+  selectedTemplate,
+]);
 
   const generatedEvaluations = activeGeneratedEesDocument?.evaluations?.length
     ? activeGeneratedEesDocument.evaluations
@@ -2792,41 +2821,92 @@ function Step2SelectCategory({
 
   const eesData = {
     selectedSB: sb,
-    generatedEesDocument: lacksAiClassification ? null : activeGeneratedEesDocument,
-    aiSummary: lacksAiClassification ? null : activeAiSummary,
+
+    generatedEesDocument:
+      strictManualInput
+        ? null
+        : activeGeneratedEesDocument,
+
+    aiSummary:
+      strictManualInput
+        ? null
+        : activeAiSummary,
+
+    // EES number tetap boleh karena memang dimasukkan
+    // manual oleh user di Step 1.
     eesNumber,
-    bulletinNumber: lacksAiClassification ? "" : sb ? sb.id : "—",
-    bulletinRevision: lacksAiClassification ? "" : sb?.revision || "-",
-    ADRelated: "-",
-    engine: lacksAiClassification ? [] : sb?.affectedESNs || [],
-    affectedESNs: lacksAiClassification ? [] : sb?.affectedESNs || [],
-    affectedPartNumbers: lacksAiClassification ? [] : sb?.affectedPartNumbers || [],
-    affectedModels: lacksAiClassification ? [] : parseListEntries(sb?.engine),
-    affectedEngines: lacksAiClassification ? "" : sb?.affectedEngine || "",
-    note: lacksAiClassification ? "" : activeGeneratedEesDocument?.note || "",
-    preparedBy: sb?.createdBy || "",
-    evaluationDate: lacksAiClassification ? "" : sb?.issuedDate || "",
+
+    bulletinNumber:
+      strictManualInput
+        ? ""
+        : sb?.id || "",
+
+    bulletinRevision:
+      strictManualInput
+        ? ""
+        : sb?.revision || "",
+
+    engine:
+      strictManualInput
+        ? []
+        : sb?.affectedESNs || [],
+
+    affectedESNs:
+      strictManualInput
+        ? []
+        : sb?.affectedESNs || [],
+
+    affectedPartNumbers:
+      strictManualInput
+        ? []
+        : sb?.affectedPartNumbers || [],
+
+    affectedModels:
+      strictManualInput
+        ? []
+        : parseListEntries(sb?.engine),
+
+    affectedEngines:
+      strictManualInput
+        ? ""
+        : sb?.affectedEngine || "",
+
+    note:
+      strictManualInput
+        ? ""
+        : activeGeneratedEesDocument?.note || "",
+
+    evaluationDate:
+      strictManualInput
+        ? ""
+        : sb?.issuedDate || "",
+
     fleet,
     airline,
-    engineType: lacksAiClassification ? "" : engine,
-    eesCategory: lacksAiClassification ? "" : isGEMode ? geCategory.level : aiCategory,
+
+    engineType:
+      strictManualInput
+        ? ""
+        : engine,
+
+    // Category tetap disimpan karena dibutuhkan workflow/routing.
+    eesCategory:
+      isGEMode
+        ? geCategory.level
+        : aiCategory,
+
     categorySystem,
-    geCategory: isGEMode && !lacksAiClassification ? geCategory.level : undefined,
-    aiSuggestedGECategory: isGEMode && !lacksAiClassification && backendGECategory ? geCategory.level : undefined,
-    geCategoryTitle: isGEMode && !lacksAiClassification ? geCategory.title : undefined,
-    geCategoryImpact: isGEMode && !lacksAiClassification ? geCategory.customerAction : undefined,
-    geImpact: isGEMode && !lacksAiClassification ? geImpact.code : undefined,
-    aiSuggestedGEImpact: isGEMode && !lacksAiClassification && backendGEImpact ? geImpact.code : undefined,
-    geImpactTitle: isGEMode && !lacksAiClassification ? geImpact.title : undefined,
-    geImpactDescription: isGEMode && !lacksAiClassification ? geImpact.description : undefined,
-    technicalCompliance: isGEMode && !lacksAiClassification ? (sb?.compliance || "") : undefined,
-    programSupport: undefined,
-    interchangeabilityCode: undefined,
-    isUnsyncedSB: false,
+
     isManualCategory: requiresManualEES,
-    strictManualInput: lacksAiClassification,
+    strictManualInput,
+
     aiSuggestedCategory: aiCategory,
-    aiConfidence: lacksAiClassification ? undefined : aiConfidence,
+
+    aiConfidence:
+      strictManualInput
+        ? undefined
+        : aiConfidence,
+
     ...(!requiresManualEES ? {
       evaluations: generatedEvaluations,
       taskType: sb?.taskType || "-",
@@ -2839,63 +2919,69 @@ function Step2SelectCategory({
       dueCompliance: sb?.compliance || "",
       categorySource: "AI Assigned",
     } : {}),
-    ...(requiresManualEES && !lacksAiClassification ? {
-      effectivitySB: "",
-      taskType: activeGeneratedEesDocument?.taskType || sb?.taskType || "",
-      applicable: generatedApplicable,
-      rep: generatedRep,
-      dueAt: "",
-      warranty: "",
-      description: extractedDescription,
-      ...(sb?.title ? { subject: sb.title } : {}),
-      references: generatedReferences,
-      referencesRaw: generatedReferences.join("; "),
-      dueCompliance: "",
-      remarks: remarks || extractedRemarks,
-      evaluations: generatedEvaluations,
-      ...(sb?.issuedDate ? { eesIssuedDate: sb.issuedDate.slice(0, 10) } : {}),
-      bulletinType: "Service Bulletin",
-      ...(fleet ? { aircraftType: fleet } : {}),
-      effectivity: "",
-      ...((remarks || extractedRemarks)
-        ? { evaluationResult: remarks || extractedRemarks }
-        : {}),
-      categorySource: "AI Classified — Manual EES Required",
+
+    ...(requiresManualEES && !strictManualInput ? {
+      // manual category lain apabila kelak ada
     } : {}),
-    ...(lacksAiClassification ? {
+
+    ...(strictManualInput ? {
       effectivitySB: "",
       taskType: "",
       applicable: "",
       rep: "",
       dueAt: "",
       warranty: "",
+
       description: "",
       subject: "",
+
       references: [],
       referencesRaw: "",
+
       dueCompliance: "",
       remarks: "",
       evaluations: [],
+
       eesIssuedDate: "",
       bulletinType: "",
       aircraftType: "",
       effectivity: "",
       evaluationResult: "",
-      categorySource: "SB Not Generated by AI — Manual Input Required",
+
+      unitConcern: [],
+      partClassification: [],
+      reasonOfEvaluation: [],
+      maintenanceLevel: [],
+      maintenanceDate: "",
+
+      warrantyType: "",
+      warrantyDueDate: "",
+      warrantyNote: "",
+
+      consequence: "",
+      accomplishmentMethod: [],
+      inspectionType: [],
+      engineeringAction: [],
+      furtherImplementation: [],
+      managementApproval: [],
+
+      categorySource:
+        "Category 1–3 — Manual EES Input Required",
     } : {}),
-    remarks: lacksAiClassification ? "" : remarks,
+
+    // input engineer harus diletakkan terakhir
+    // agar mengalahkan empty values.
     ...manualDraft,
-    // Citilink Subject is sourced from the SB title for both AI-assisted and
-    // manual categories. Previously it was only initialized in the manual
-    // branch, so an AI-classified Citilink SB failed Step 2 validation even
-    // though its title was already displayed in the preview.
-    subject: typeof manualDraft.subject === "string" && manualDraft.subject.trim()
-      ? manualDraft.subject
-      : lacksAiClassification
-        ? ""
-        : sb?.title || activeGeneratedEesDocument?.serviceBulletin?.title || "",
-    // The active template is the source of truth. A restored/manual draft may
-    // still contain the previous template and must never override the choice.
+
+    subject:
+      typeof manualDraft.subject === "string"
+        ? manualDraft.subject
+        : strictManualInput
+          ? ""
+          : sb?.title ||
+            activeGeneratedEesDocument?.serviceBulletin?.title ||
+            "",
+
     eesTemplate: selectedTemplate,
     fleetTemplate: fleetTpl,
   };
@@ -3245,8 +3331,24 @@ function Step2SelectCategory({
             <div className="mt-0.5 text-[9px] font-semibold text-muted-foreground">{geImpact.title}</div>
           </div>
           <div>
-            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">AI Confidence</div>
-            <div className="text-xl font-bold" style={{ color: "#10B981" }}>{aiConfidence === null ? "—" : `${aiConfidence}%`}</div>
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+              {isBelowCategory4 ? "Input Mode" : "AI Confidence"}
+            </div>
+
+            <div
+              className="text-xl font-bold"
+              style={{
+                color: isBelowCategory4
+                  ? "#D97706"
+                  : "#10B981",
+              }}
+            >
+              {isBelowCategory4
+                ? "Manual Input"
+                : aiConfidence === null
+                  ? "—"
+                  : `${aiConfidence}%`}
+            </div>
           </div>
           <div className="min-w-0">
             <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Approval Route</div>
@@ -3269,7 +3371,26 @@ function Step2SelectCategory({
         <div className="flex items-center gap-2 mb-3">
           <Brain size={12} style={{ color: "#00C2FF" }} />
           <span className="text-xs font-semibold text-foreground">AI Assigned Category</span>
-          <span className="text-[9px] px-1.5 py-0.5 rounded font-bold ml-auto" style={{ background: "rgba(0,194,255,0.12)", color: "#00C2FF", border: "1px solid rgba(0,194,255,0.2)" }}>{requiresManualEES ? "AI Classified" : "AI Generated"}</span>
+          <span
+            className="text-[9px] px-1.5 py-0.5 rounded font-bold ml-auto"
+            style={{
+              background: isBelowCategory4
+                ? "#F59E0B15"
+                : "rgba(0,194,255,0.12)",
+              color: isBelowCategory4
+                ? "#D97706"
+                : "#00C2FF",
+              border: isBelowCategory4
+                ? "1px solid #F59E0B35"
+                : "1px solid rgba(0,194,255,0.2)",
+            }}
+          >
+            {isBelowCategory4
+              ? "Manual EES Required"
+              : requiresManualEES
+                ? "AI Classified"
+                : "AI Generated"}
+          </span>
         </div>
         <div className="mb-3 grid grid-cols-3 gap-3">
           <div>
@@ -3277,8 +3398,24 @@ function Step2SelectCategory({
             <div className="text-xl font-bold text-foreground">{aiCategory}</div>
           </div>
           <div>
-            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">AI Confidence</div>
-            <div className="text-xl font-bold" style={{ color: "#10B981" }}>{aiConfidence === null ? "—" : `${aiConfidence}%`}</div>
+            <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">
+              {isBelowCategory4 ? "Input Mode" : "AI Confidence"}
+            </div>
+
+            <div
+              className="text-xl font-bold"
+              style={{
+                color: isBelowCategory4
+                  ? "#D97706"
+                  : "#10B981",
+              }}
+            >
+              {isBelowCategory4
+                ? "Manual Input"
+                : aiConfidence === null
+                  ? "—"
+                  : `${aiConfidence}%`}
+            </div>
           </div>
           <div className="min-w-0">
             <div className="text-[10px] text-muted-foreground uppercase tracking-wider mb-0.5">Approval Route</div>
@@ -3290,9 +3427,11 @@ function Step2SelectCategory({
         </div>
         <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground" style={{ borderTop: "1px solid var(--border)", paddingTop: 8 }}>
           <Info size={10} style={{ color: "#0242DB" }} />
-          {requiresManualEES
-            ? "The category is AI-assigned, but Category 1–3 must be completed manually in Step 4."
-            : "Category 4 and above use AI-assisted EES generation. Category changes can only be made during Manual Review."}
+          {isBelowCategory4
+            ? "AI is used only to determine the EES category. All EES fields for Category 1–3 must be entered manually and AI-generated values are disabled."
+            : requiresManualEES
+              ? "This category requires manual EES completion."
+              : "Category 4 and above use AI-assisted EES generation. Category changes can only be made during Manual Review."}
         </div>
       </div>
       )}

@@ -297,33 +297,6 @@ function EngineRow({ engine }: { engine: EngineComplianceItem }) {
           Due: {formatDateTime(engine.dueAt)}
         </p>
       </td>
-      <td className="px-4 py-3">
-        {engine.evidence?.sourceType ? (
-          <>
-            <Badge className="border-cyan-800 bg-cyan-700 text-white">
-              {engine.evidence.sourceType}
-            </Badge>
-            <p className="mt-2 break-all font-mono text-[10px] text-foreground">
-              {engine.evidence.sourceId || "-"}
-            </p>
-            <p className="mt-1 text-[10px] text-muted-foreground">
-              {formatDateTime(engine.evidence.sourceDate)}
-            </p>
-          </>
-        ) : (
-          <span className="text-xs text-muted-foreground">-</span>
-        )}
-      </td>
-      <td className="px-4 py-3">
-        <p className="max-w-[230px] text-[10px] leading-relaxed text-foreground">
-          {engine.methodOfCompliance || "-"}
-        </p>
-        {engine.remarks && (
-          <p className="mt-2 max-w-[230px] text-[10px] leading-relaxed text-muted-foreground">
-            {engine.remarks}
-          </p>
-        )}
-      </td>
     </tr>
   );
 }
@@ -787,14 +760,14 @@ export function SbStatusPage() {
                   <div className="border-b border-border bg-muted/60 px-4 py-3">
                     <h3 className="text-xs font-bold text-foreground">Engine Compliance Detail</h3>
                     <p className="mt-0.5 text-[10px] text-muted-foreground">
-                      {detail.engines.length} engine(s) evaluated. Evidence identifies SVR, EDS, or IQ03 as the source.
+                      {detail.engines.length} engine(s) evaluated.
                     </p>
                   </div>
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[1020px] text-left">
+                    <table className="w-full min-w-[700px] text-left">
                       <thead className="bg-muted/35">
                         <tr>
-                          {["Engine", "Aircraft / Operator", "Applicability", "Compliance", "Evidence", "Method / Remarks"].map((heading) => (
+                          {["Engine", "Aircraft / Operator", "Applicability", "Compliance"].map((heading) => (
                             <th key={heading} className="px-4 py-3 text-[9px] font-bold uppercase tracking-[0.08em] text-muted-foreground">{heading}</th>
                           ))}
                         </tr>
@@ -803,7 +776,7 @@ export function SbStatusPage() {
                         {detail.engines.length ? (
                           detail.engines.map((engine) => <EngineRow key={engine.engineId} engine={engine} />)
                         ) : (
-                          <tr><td colSpan={6} className="px-4 py-12 text-center text-xs text-muted-foreground">No engine is available in the current operator scope.</td></tr>
+                          <tr><td colSpan={4} className="px-4 py-12 text-center text-xs text-muted-foreground">No engine is available in the current operator scope.</td></tr>
                         )}
                       </tbody>
                     </table>

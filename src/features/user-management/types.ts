@@ -55,3 +55,10 @@ export interface UserFormValues {
 
 export type CreateUserPayload = UserFormValues;
 export type UpdateUserPayload = Partial<Omit<UserFormValues, "password">>;
+
+export interface OperatorOption {
+  id: string;
+  code: string;
+  name: string;
+}
+
